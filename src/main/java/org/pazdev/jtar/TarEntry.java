@@ -30,32 +30,33 @@ import java.util.Map;
  * @author Jonathan Paz <jonathan@pazdev.com>
  */
 public class TarEntry {
-   	private String name;
-	private EnumSet<PosixFilePermission> permissions;
-	private boolean setUid;
-	private boolean setGid;
-	private boolean sticky;
-	private int uid;
-	private int gid;
-	private long size;
-	private FileTime mtime;
-	private FileTime atime;
-	private FileTime ctime;
-	private int chksum;
-	private char typeflag;
-	private String linkname;
-	private String magic;
-	private String version;
-	private String uname;
-	private String gname;
-	private int devmajor;
-	private int devminor;
-	private Charset charset;
-	private String comment;
-	private String hdrCharset;
-	private Map<String, String> extraHeaders;
+
+    private String name;
+    private EnumSet<PosixFilePermission> permissions;
+    private boolean setUid;
+    private boolean setGid;
+    private boolean sticky;
+    private int uid;
+    private int gid;
+    private long size;
+    private FileTime mtime;
+    private FileTime atime;
+    private FileTime ctime;
+    private int chksum;
+    private char typeflag;
+    private String linkname;
+    private String magic;
+    private String version;
+    private String uname;
+    private String gname;
+    private int devmajor;
+    private int devminor;
+    private Charset charset;
+    private String comment;
+    private String hdrCharset;
+    private Map<String, String> extraHeaders;
     private TarFormat format;
-	private byte[] header;
+    private byte[] header;
 
     public TarEntry(String name) {
         this.name = name;
