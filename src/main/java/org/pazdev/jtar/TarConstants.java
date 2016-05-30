@@ -17,7 +17,7 @@ package org.pazdev.jtar;
 
 /**
  *
- * @author Jonathan Paz <jonathan@pazdev.com>
+ * @author Jonathan Paz jonathan.paz@pazdev.com
  */
 public final class TarConstants {
 

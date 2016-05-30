@@ -28,7 +28,7 @@ import java.nio.charset.UnmappableCharacterException;
 
 /**
  *
- * @author Jonathan Paz <jonathan@pazdev.com>
+ * @author Jonathan Paz jonathan.paz@pazdev.com
  */
 class TarUtils {
  	public static String getStringValue(byte[] block, int offset, int length) {

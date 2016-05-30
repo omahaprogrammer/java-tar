@@ -27,7 +27,7 @@ import java.util.Map;
 
 /**
  *
- * @author Jonathan Paz <jonathan@pazdev.com>
+ * @author Jonathan Paz jonathan.paz@pazdev.com
  */
 public class TarEntry {
 

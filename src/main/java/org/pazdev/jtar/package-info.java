@@ -13,4 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/**
+ * @author Jonathan Paz jonathan.paz@pazdev.com
+ */
 package org.pazdev.jtar;
