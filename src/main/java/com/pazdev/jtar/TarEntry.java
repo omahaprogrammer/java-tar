@@ -16,11 +16,14 @@
 package com.pazdev.jtar;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermission;
+import java.time.Instant;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
@@ -347,5 +350,30 @@ public class TarEntry {
 
     public void setFormat(TarFormat format) {
         this.format = format;
+    }
+
+    private static Instant stringToInstant(String t) {
+        BigDecimal time = new BigDecimal(t);
+        BigDecimal seconds = time.setScale(0, RoundingMode.FLOOR);
+        BigDecimal nanos = time.subtract(seconds).movePointRight(9).setScale(0, RoundingMode.FLOOR);
+        return Instant.ofEpochSecond(seconds.longValue(), nanos.longValue());
+    }
+
+    void setMtime(String mtime) {
+        if (mtime != null) {
+            this.mtime = FileTime.from(stringToInstant(mtime));
+        }
+    }
+
+    void setAtime(String atime) {
+        if (atime != null) {
+            this.atime = FileTime.from(stringToInstant(atime));
+        }
+    }
+
+    void setCtime(String ctime) {
+        if (ctime != null) {
+            this.ctime = FileTime.from(stringToInstant(ctime));
+        }
     }
 }

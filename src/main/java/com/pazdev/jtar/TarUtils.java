@@ -19,12 +19,15 @@ import java.io.IOException;
 import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
+import java.nio.charset.Charset;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CoderResult;
 import java.nio.charset.CodingErrorAction;
+import java.nio.charset.IllegalCharsetNameException;
 import java.nio.charset.MalformedInputException;
 import java.nio.charset.StandardCharsets;
 import java.nio.charset.UnmappableCharacterException;
+import java.nio.charset.UnsupportedCharsetException;
 
 /**
  *
@@ -105,6 +108,86 @@ class TarUtils {
 		out.flip();
 		out.get(block, offset, length);
 	}
+
+    public static Charset charsetFromString(String c) {
+        if (c == null) {
+            return null;
+        }
+        try {
+            switch (c) {
+                case "ISO-IR 646 1900":
+                    return Charset.forName("US-ASCII");
+                case "ISO-IR 8859 1 1998":
+                   return Charset.forName("ISO-8859-1");
+                case "ISO-IR 8859 2 1999":
+                   return Charset.forName("ISO-8859-2");
+                case "ISO-IR 8859 3 1999":
+                   return Charset.forName("ISO-8859-3");
+                case "ISO-IR 8859 4 1998":
+                   return Charset.forName("ISO-8859-4");
+                case "ISO-IR 8859 5 1999":
+                   return Charset.forName("ISO-8859-5");
+                case "ISO-IR 8859 6 1999":
+                   return Charset.forName("ISO-8859-6");
+                case "ISO-IR 8859 7 1987":
+                   return Charset.forName("ISO-8859-7");
+                case "ISO-IR 8859 8 1999":
+                   return Charset.forName("ISO-8859-8");
+                case "ISO-IR 8859 9 1999":
+                   return Charset.forName("ISO-8859-9");
+                case "ISO-IR 8859 10 1998":
+                   return Charset.forName("ISO-8859-10");
+                case "ISO-IR 8859 13 1998":
+                   return Charset.forName("ISO-8859-13");
+                case "ISO-IR 8859 14 1998":
+                   return Charset.forName("ISO-8859-14");
+                case "ISO-IR 8859 15 1999":
+                   return Charset.forName("ISO-8859-15");
+                default:
+                    return null;
+            }
+        } catch (UnsupportedCharsetException | IllegalCharsetNameException e) {
+            return null;
+        }
+    }
+
+    public static String stringFromCharset(Charset c) {
+        if (c == null) {
+            return null;
+        }
+        switch (c.name()) {
+            case "US-ASCII":
+                return "ISO-IR 646 1900";
+            case "ISO-8859-1":
+                return "ISO-IR 8859 1 1998";
+            case "ISO-8859-2":
+                return "ISO-IR 8859 2 1999";
+            case "ISO-8859-3":
+                return "ISO-IR 8859 3 1999";
+            case "ISO-8859-4":
+                return "ISO-IR 8859 4 1998";
+            case "ISO-8859-5":
+                return "ISO-IR 8859 5 1999";
+            case "ISO-8859-6":
+                return "ISO-IR 8859 6 1999";
+            case "ISO-8859-7":
+                return "ISO-IR 8859 7 1987";
+            case "ISO-8859-8":
+                return "ISO-IR 8859 8 1999";
+            case "ISO-8859-9":
+                return "ISO-IR 8859 9 1999";
+            case "ISO-8859-10":
+                return "ISO-IR 8859 10 1998";
+            case "ISO-8859-13":
+                return "ISO-IR 8859 13 1998";
+            case "ISO-8859-14":
+                return "ISO-IR 8859 14 1998";
+            case "ISO-8859-15":
+                return "ISO-IR 8859 15 1999";
+            default:
+                return null;
+        }
+    }
 
 	private TarUtils() {
 		throw new UnsupportedOperationException("Cannot instantiate object");

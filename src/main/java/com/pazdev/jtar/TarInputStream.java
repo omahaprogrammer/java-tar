@@ -24,6 +24,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -289,6 +292,7 @@ public class TarInputStream extends BufferedInputStream {
 
     Pattern paramPattern = compile("(\\d*) ([^=]*)=(.*)\n", DOTALL | UNIX_LINES);
     private TarEntry tarEntryFromExtendedHeader() throws IOException {
+        TarEntry newEntry = new TarEntry();
         int size = (int) entry.getSize(); // the extended header has no business being bigger than 2GB, so this is safe.
         int blocksToRead = (size + 511) / 512;
         int bytesToRead = blocksToRead * 512;
@@ -317,6 +321,64 @@ public class TarInputStream extends BufferedInputStream {
             byte[] paramarr = new byte[len];
             exthdr.get(paramarr);
             String param = new String(paramarr, StandardCharsets.UTF_8);
+            Matcher m = paramPattern.matcher(param);
+            if (m.matches()) {
+                String key = m.group(2);
+                String value = m.group(3);
+                if (value != null && value.isEmpty()) {
+                    value = null;
+                }
+                switch (key) {
+                    case "atime":
+                        entry.setAtime(value);
+                        break;
+                    case "charset":
+                        entry.setCharset(charsetFromString(value));
+                        break;
+                    case "comment":
+                        entry.setComment(value);
+                        break;
+                    case "gid":
+                        entry.setGid(Integer.parseInt(value));
+                        break;
+                    case "gname":
+                        entry.setGname(value);
+                        break;
+                    case "linkpath":
+                        entry.setLinkname(value);
+                        break;
+                    case "mtime":
+                        entry.setMtime(value);
+                        break;
+                    case "path":
+                        entry.setName(value);
+                        break;
+                    case "size":
+                        entry.setSize(Long.parseLong(value));
+                        break;
+                    case "uid":
+                        entry.setUid(Integer.parseInt(value));
+                        break;
+                    case "uname":
+                        entry.setUname(value);
+                        break;
+                    default:
+                        Map<String, String> extra = entry.getExtraHeaders();
+                        if (extra == null) {
+                            extra = new HashMap<>();
+                        }
+                        if (value == null) {
+                            extra.remove(key);
+                        } else {
+                            extra.put(key, value);
+                        }
+                        if (extra.isEmpty()) {
+                            extra = null;
+                        }
+                        entry.setExtraHeaders(extra);
+                        break;
+                }
+            }
         }
         return null;
     }
