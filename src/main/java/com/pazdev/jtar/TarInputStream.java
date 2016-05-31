@@ -15,6 +15,7 @@
  */
 package com.pazdev.jtar;
 
+import static java.util.regex.Pattern.*;
 import static com.pazdev.jtar.TarUtils.*;
 import static com.pazdev.jtar.TarConstants.*;
 
@@ -22,6 +23,8 @@ import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.regex.Pattern;
 
 /**
  * <p>
@@ -59,12 +62,12 @@ public class TarInputStream extends BufferedInputStream {
 
     private boolean closed;
 
-    private byte[] blockarray = new byte[512];
-    private ByteBuffer block = ByteBuffer.wrap(blockarray);
+    private final byte[] blockarray = new byte[512];
+    private final ByteBuffer block = ByteBuffer.wrap(blockarray);
     private boolean eof = false;
     private boolean entryeof = false;
 
-    private byte[] tmpbuf = new byte[512];
+    private final byte[] tmpbuf = new byte[512];
 
     private TarEntry globalEntry;
 
@@ -209,7 +212,17 @@ public class TarInputStream extends BufferedInputStream {
      */
     @Override
     public long skip(long n) throws IOException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        ensureOpen();
+        long ct = 0;
+        while (n > 0) {
+            int num = read(tmpbuf, 0, (int) Math.min(n, tmpbuf.length));
+            if (num == -1) {
+                return ct;
+            }
+            ct += num;
+            n -= num;
+        }
+        return ct;
     }
 
     /**
@@ -229,6 +242,7 @@ public class TarInputStream extends BufferedInputStream {
             throw new IOException("The stream is closed");
         }
     }
+
     private void processEntry() throws IOException {
         String magic = getStringValue(blockarray, MAGIC_OFFSET, GNU_MAGIC_LENGTH);
         switch (magic) {
@@ -254,17 +268,56 @@ public class TarInputStream extends BufferedInputStream {
 
     private void processPosix() throws IOException {
         char typeflag = (char) (0x00ff & blockarray[TYPEFLAG_OFFSET]);
+        TarEntry extendedHeader = null;
         switch (typeflag) {
             case XGLTYPE:
-                break;
+                globalEntry = tarEntryFromExtendedHeader();
+                readblock();
+                processEntry();
+                return; // This wasn't a normal header, so I need to start over with the processing
             case XHDTYPE:
+                extendedHeader = tarEntryFromExtendedHeader();
+                readblock();
                 break;
-            default:
-                processUstar();
+                
+        }
+        processUstar();
+        if (extendedHeader != null) {
+            entry.mergeEntry(extendedHeader);
         }
     }
 
-    private TarEntry tarEntryFromExtendedHeader(ByteBuffer buf) {
+    Pattern paramPattern = compile("(\\d*) ([^=]*)=(.*)\n", DOTALL | UNIX_LINES);
+    private TarEntry tarEntryFromExtendedHeader() throws IOException {
+        int size = (int) entry.getSize(); // the extended header has no business being bigger than 2GB, so this is safe.
+        int blocksToRead = (size + 511) / 512;
+        int bytesToRead = blocksToRead * 512;
+        int offset = 0;
+        byte[] bytes = new byte[bytesToRead];
+        
+        while (bytesToRead > 0) {
+            int ct = super.read(bytes, offset, bytesToRead);
+            if (ct == -1) {
+                throw new TarException("EOF before finished reading header");
+            }
+            offset += ct;
+            bytesToRead -= ct;
+        }
+        ByteBuffer exthdr = ByteBuffer.wrap(bytes);
+        exthdr.limit(bytesToRead);
+        while (exthdr.hasRemaining()) {
+            exthdr.mark();
+            StringBuilder lenstr = new StringBuilder();
+            byte r;
+            while ((r = exthdr.get()) != ' ') {
+                lenstr.append((char) (0x00ff & r));
+            }
+            exthdr.rewind();
+            int len = Integer.parseInt(lenstr.toString());
+            byte[] paramarr = new byte[len];
+            exthdr.get(paramarr);
+            String param = new String(paramarr, StandardCharsets.UTF_8);
+        }
         return null;
     }
 
@@ -272,11 +325,11 @@ public class TarInputStream extends BufferedInputStream {
 
     }
 
-    private void processGnu() throws IOException {
-
+    private void processV7() throws IOException {
     }
 
-    private void processV7() throws IOException {
+    private void processGnu() throws IOException {
+
     }
 
     private boolean readblock() throws IOException {
