@@ -21,6 +21,7 @@ import static com.pazdev.jtar.TarConstants.*;
 import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 
 /**
  * <p>
@@ -54,9 +55,14 @@ public class TarInputStream extends BufferedInputStream {
     /**
      * The current entry being read.
      */
-    protected TarEntry currentEntry;
+    protected TarEntry entry;
 
     private boolean closed;
+
+    private byte[] blockarray = new byte[512];
+    private ByteBuffer block = ByteBuffer.wrap(blockarray);
+    private boolean eof = false;
+    private boolean entryeof = false;
 
     private byte[] tmpbuf = new byte[512];
 
@@ -99,11 +105,32 @@ public class TarInputStream extends BufferedInputStream {
      */
     public TarEntry getNextEntry() throws IOException {
         ensureOpen();
-        if (currentEntry != null) {
+        if (eof) {
+            return null;
+        }
+        if (entry != null) {
             closeEntry();
         }
+        readblock();
+        if (isZeroBlock()) {
+            readblock();
+            if (isZeroBlock()) {
+                eof = true;
+            }
+        }
         processEntry();
-        return currentEntry;
+        return entry;
+    }
+
+    private boolean isZeroBlock() {
+        boolean zeroblock = true;
+        while (block.hasRemaining()) {
+            if (block.get() != 0) {
+                zeroblock = false;
+                break;
+            }
+        }
+        return zeroblock;
     }
 
     /**
@@ -118,23 +145,23 @@ public class TarInputStream extends BufferedInputStream {
         while (read(tmpbuf, 0, tmpbuf.length) != -1) {
             // keep reading
         }
-        currentEntry = null;
+        entry = null;
     }
 
     /**
      * Returns an estimate of the number of bytes that can be read (or skipped
      * over) in the current TAR entry without blocking by the next invocation of
-     * a method for this input stream. This method returns the smaller of the
-     * number of bytes remaining in this entry or what would be returned in
-     * {@link java.io.BufferedInputStream#available()}.
+     * a method for this input stream. This method will return 0 if there are no
+     * more remaining bytes in this entry.
      * @return an estimate of the number of bytes that can be read (or skipped
      * over) without blocking.
      * @throws IOException  if an I/O exception occurs
      */
     @Override
     public int available() throws IOException {
+        ensureOpen();
         int len = (int) Math.min(entrylen - entrypos, (long)Integer.MAX_VALUE);
-        int ct = super.available();
+        int ct = block.remaining();
         return Math.min(len, ct);
     }
 
@@ -163,7 +190,13 @@ public class TarInputStream extends BufferedInputStream {
      */
     @Override
     public int read(byte[] b, int off, int len) throws IOException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        ensureOpen();
+        if (!block.hasRemaining() && !readblock()) {
+            return -1;
+        }
+        len = Math.min(len, block.remaining());
+        block.get(b, off, len);
+        return len;
     }
 
     /**
@@ -185,7 +218,10 @@ public class TarInputStream extends BufferedInputStream {
      */
     @Override
     public void close() throws IOException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        if (!closed) {
+            closed = true;
+            super.close();
+        }
     }
 
     private void ensureOpen() throws IOException {
@@ -194,51 +230,76 @@ public class TarInputStream extends BufferedInputStream {
         }
     }
     private void processEntry() throws IOException {
-        byte[] header = readHeader();
-        if (header != null) {
-            String magic = getStringValue(header, MAGIC_OFFSET, GNU_MAGIC_LENGTH);
-            if ("ustar".equals(magic)) {
-                String version = getStringValue(header, VERSION_OFFSET, VERSION_LENGTH);
-                if ("00".equals(version)) {
-                    processPosix(header);
+        String magic = getStringValue(blockarray, MAGIC_OFFSET, GNU_MAGIC_LENGTH);
+        switch (magic) {
+            case "ustar":
+                if ("00".equals(getStringValue(blockarray, VERSION_OFFSET, VERSION_LENGTH))) {
+                    processPosix();
                 }
-            } else if("ustar  ".equals(magic)) {
-                processGnu(header);
-            }
+                break;
+            case "ustar  ":
+                processGnu();
+                break;
+            default:
+                processV7();
+                break;
+        }
+        if (entry != null) {
+            entrylen = entry.getSize();
+            entrypos = 0;
+        } else {
+            entrylen = 0;
         }
     }
 
-    private void processPosix(byte[] header) throws IOException {
-        char typeflag = (char) (0x00ff & header[TYPEFLAG_OFFSET]);
+    private void processPosix() throws IOException {
+        char typeflag = (char) (0x00ff & blockarray[TYPEFLAG_OFFSET]);
         switch (typeflag) {
             case XGLTYPE:
                 break;
             case XHDTYPE:
                 break;
             default:
-                processUstar(header);
+                processUstar();
         }
     }
 
-    private void processUstar(byte[] header) {
+    private TarEntry tarEntryFromExtendedHeader(ByteBuffer buf) {
+        return null;
+    }
+
+    private void processUstar() {
 
     }
 
-    private void processGnu(byte[] header) throws IOException {
+    private void processGnu() throws IOException {
 
     }
 
+    private void processV7() throws IOException {
+    }
 
-    private byte[] readHeader() throws IOException {
+    private boolean readblock() throws IOException {
+        ensureOpen();
+        if (eof || entryeof) {
+            return false;
+        }
+        block.clear();
         int readct = 0;
-        byte[] header = new byte[512];
         do {
-            int ct = super.read(header, readct, 512 - readct);
+            int ct = super.read(blockarray, readct, blockarray.length - readct);
             if (ct == -1) {
-                return null;
+                entryeof = true;
+                block.limit(0);
+                return false;
             }
             readct += ct;
         } while (readct < 512);
-        return header;
+        entrypos += 512;
+        if (entrypos >= entrylen) {
+            entryeof = true;
+            block.limit(block.capacity() - (int) (entrypos - entrylen));
+        }
+        return true;
     }
 }
