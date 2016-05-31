@@ -33,28 +33,26 @@ public class TarEntry {
 
     private String name;
     private EnumSet<PosixFilePermission> permissions;
-    private boolean setUid;
-    private boolean setGid;
-    private boolean sticky;
-    private int uid;
-    private int gid;
-    private long size;
+    private Boolean setUid;
+    private Boolean setGid;
+    private Boolean sticky;
+    private Integer uid;
+    private Integer gid;
+    private Long size;
     private FileTime mtime;
     private FileTime atime;
     private FileTime ctime;
-    private int chksum;
-    private char typeflag;
+    private Integer chksum;
+    private Character typeflag;
     private String linkname;
     private String magic;
     private String version;
     private String uname;
     private String gname;
-    private int devmajor;
-    private int devminor;
+    private Integer devmajor;
+    private Integer devminor;
     private Charset charset;
-    private Charset headerCharset;
     private String comment;
-    private String hdrCharset;
     private Map<String, String> extraHeaders;
     private TarFormat format;
 
@@ -94,11 +92,69 @@ public class TarEntry {
         this.devminor = entry.devminor;
         this.charset = entry.charset;
         this.comment = entry.comment;
-        this.hdrCharset = entry.hdrCharset;
         this.format = entry.format;
         if (entry.extraHeaders != null && !entry.extraHeaders.isEmpty()) {
             this.extraHeaders = new HashMap<>(entry.extraHeaders);
         }
+    }
+
+    TarEntry() {
+        super();
+    }
+
+    /**
+     * Merge the given TarEntry object into this object. The attributes of the
+     * given entry will override the attribute for this object.
+     * @param e the entry
+     * @return 
+     */
+    TarEntry mergeEntry(TarEntry e) {
+        if (e.name != null) {
+            this.name = e.name;
+        }
+        if (e.permissions != null) {
+            this.permissions = EnumSet.copyOf(e.permissions);
+        }
+        if (e.uid != null) {
+            this.uid = e.uid;
+        }
+        if (e.gid != null) {
+            this.gid = e.gid;
+        }
+        if (e.size != null) {
+            this.size = e.size;
+        }
+        if (e.mtime != null) {
+            this.mtime = e.mtime;
+        }
+        if (e.atime != null) {
+            this.atime = e.atime;
+        }
+        if (e.linkname != null) {
+            this.linkname = e.linkname;
+        }
+        if (e.uname != null) {
+            this.uname = e.uname;
+        }
+        if (e.gname != null) {
+            this.gname = e.gname;
+        }
+        if (e.devmajor != null) {
+            this.devmajor = e.devmajor;
+        }
+        if (e.devminor != null) {
+            this.devminor = e.devminor;
+        }
+        if (e.charset != null) {
+            this.charset = e.charset;
+        }
+        if (e.comment != null) {
+            this.comment = e.comment;
+        }
+        if (e.extraHeaders != null) {
+            this.extraHeaders.putAll(e.extraHeaders);
+        }
+        return this;
     }
 
     public String getName() {
@@ -277,14 +333,6 @@ public class TarEntry {
         this.comment = comment;
     }
 
-    public String getHdrCharset() {
-        return hdrCharset;
-    }
-
-    public void setHdrCharset(String hdrCharset) {
-        this.hdrCharset = hdrCharset;
-    }
-
     public Map<String, String> getExtraHeaders() {
         return extraHeaders;
     }
@@ -300,13 +348,4 @@ public class TarEntry {
     public void setFormat(TarFormat format) {
         this.format = format;
     }
-
-    public Charset getHeaderCharset() {
-        return headerCharset;
-    }
-
-    public void setHeaderCharset(Charset headerCharset) {
-        this.headerCharset = headerCharset;
-    }
-
 }
