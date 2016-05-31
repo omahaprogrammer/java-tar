@@ -13,7 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.pazdev.jtar;
+package com.pazdev.jtar;
+
+import static com.pazdev.jtar.TarUtils.*;
+import static com.pazdev.jtar.TarConstants.*;
 
 import java.io.BufferedInputStream;
 import java.io.IOException;
@@ -56,6 +59,8 @@ public class TarInputStream extends BufferedInputStream {
     private boolean closed;
 
     private byte[] tmpbuf = new byte[512];
+
+    private TarEntry globalEntry;
 
     /**
      * Creates a new TAR input stream. The blocksize is defaulted to 10240 as specified
@@ -191,8 +196,38 @@ public class TarInputStream extends BufferedInputStream {
     private void processEntry() throws IOException {
         byte[] header = readHeader();
         if (header != null) {
+            String magic = getStringValue(header, MAGIC_OFFSET, GNU_MAGIC_LENGTH);
+            if ("ustar".equals(magic)) {
+                String version = getStringValue(header, VERSION_OFFSET, VERSION_LENGTH);
+                if ("00".equals(version)) {
+                    processPosix(header);
+                }
+            } else if("ustar  ".equals(magic)) {
+                processGnu(header);
+            }
         }
     }
+
+    private void processPosix(byte[] header) throws IOException {
+        char typeflag = (char) (0x00ff & header[TYPEFLAG_OFFSET]);
+        switch (typeflag) {
+            case XGLTYPE:
+                break;
+            case XHDTYPE:
+                break;
+            default:
+                processUstar(header);
+        }
+    }
+
+    private void processUstar(byte[] header) {
+
+    }
+
+    private void processGnu(byte[] header) throws IOException {
+
+    }
+
 
     private byte[] readHeader() throws IOException {
         int readct = 0;

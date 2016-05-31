@@ -13,30 +13,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.pazdev.jtar;
-
-import java.io.IOException;
+package com.pazdev.jtar;
 
 /**
- * Signals that an exception occurred while processing TAR files.
+ * Signals that an exception occurred while formatting a {@link TarEntry} into
+ * a TAR file.
  * @author Jonathan Paz jonathan.paz@pazdev.com
  */
-public class TarException extends IOException {
+public class TarFormatException extends TarException {
 
-    public TarException() {
+    public TarFormatException() {
         super();
     }
 
-    public TarException(String message) {
+    public TarFormatException(String message) {
         super(message);
     }
 
-    public TarException(Throwable cause) {
+    public TarFormatException(Throwable cause) {
         super(cause);
     }
 
-    public TarException(String message, Throwable cause) {
+    public TarFormatException(String message, Throwable cause) {
         super(message, cause);
     }
-    
+
 }

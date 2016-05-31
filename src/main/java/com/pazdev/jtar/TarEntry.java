@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.pazdev.jtar;
+package com.pazdev.jtar;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
@@ -52,11 +52,11 @@ public class TarEntry {
     private int devmajor;
     private int devminor;
     private Charset charset;
+    private Charset headerCharset;
     private String comment;
     private String hdrCharset;
     private Map<String, String> extraHeaders;
     private TarFormat format;
-    private byte[] header;
 
     public TarEntry(String name) {
         this.name = name;
@@ -301,12 +301,12 @@ public class TarEntry {
         this.format = format;
     }
 
-    public byte[] getHeader() {
-        return header;
+    public Charset getHeaderCharset() {
+        return headerCharset;
     }
 
-    public void setHeader(byte[] header) {
-        this.header = header;
+    public void setHeaderCharset(Charset headerCharset) {
+        this.headerCharset = headerCharset;
     }
 
 }

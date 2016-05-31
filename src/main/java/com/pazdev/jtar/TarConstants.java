@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.pazdev.jtar;
+package com.pazdev.jtar;
 
 /**
  *
@@ -78,6 +78,7 @@ public final class TarConstants {
     public static final int DEVMINOR_LENGTH = 8;
     public static final int PREFIX_OFFSET = 345;
     public static final int PREFIX_LENGTH = 155;
+    public static final int GNU_MAGIC_LENGTH = 8;
     public static final int GNU_ATIME_OFFSET = 345;
     public static final int GNU_ATIME_LENGTH = 12;
     public static final int GNU_CTIME_OFFSET = 357;

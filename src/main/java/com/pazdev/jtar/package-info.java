@@ -17,4 +17,4 @@
 /**
  * @author Jonathan Paz jonathan.paz@pazdev.com
  */
-package org.pazdev.jtar;
+package com.pazdev.jtar;
