@@ -15,18 +15,19 @@
  */
 package com.pazdev.jtar;
 
-import java.io.IOException;
+import static com.pazdev.jtar.TarConstants.*;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.Charset;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermission;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  *
@@ -35,10 +36,7 @@ import java.util.Map;
 public class TarEntry {
 
     private String name;
-    private EnumSet<PosixFilePermission> permissions;
-    private Boolean setUid;
-    private Boolean setGid;
-    private Boolean sticky;
+    private Integer mode;
     private Integer uid;
     private Integer gid;
     private Long size;
@@ -63,21 +61,9 @@ public class TarEntry {
         this.name = name;
     }
 
-    public TarEntry(Path path) throws IOException {
-        String[] pathParts = new String[path.getNameCount()];
-        for (int i = pathParts.length - 1; i >= 0; i++) {
-            pathParts[i] = path.getName(i).toString();
-        }
-        name = String.join("/", pathParts);
-        permissions = EnumSet.copyOf(Files.getPosixFilePermissions(path));
-    }
-
     public TarEntry(TarEntry entry) {
         this.name = entry.name;
-        this.permissions = EnumSet.copyOf(entry.permissions);
-        this.setUid = entry.setUid;
-        this.setGid = entry.setGid;
-        this.sticky = entry.sticky;
+        this.mode = entry.mode;
         this.uid = entry.uid;
         this.gid = entry.gid;
         this.size = entry.size;
@@ -106,7 +92,7 @@ public class TarEntry {
     }
 
     /**
-     * Merge the given TarEntry object into this object. The attributes of the
+     * Merge the given TarEntry object Integero this object. The attributes of the
      * given entry will override the attribute for this object.
      * @param e the entry
      * @return 
@@ -115,8 +101,8 @@ public class TarEntry {
         if (e.name != null) {
             this.name = e.name;
         }
-        if (e.permissions != null) {
-            this.permissions = EnumSet.copyOf(e.permissions);
+        if (e.mode != null) {
+            this.mode = e.mode;
         }
         if (e.uid != null) {
             this.uid = e.uid;
@@ -168,59 +154,109 @@ public class TarEntry {
         this.name = name;
     }
 
-    public EnumSet<PosixFilePermission> getPermissions() {
-        return permissions;
+    public Integer getMode() {
+        return mode;
     }
 
-    public void setPermissions(EnumSet<PosixFilePermission> permissions) {
-        this.permissions = permissions;
+    public void setMode(Integer mode) {
+        this.mode = mode;
     }
 
-    public boolean isSetUid() {
-        return setUid;
+    public Set<PosixFilePermission> getPermissions() {
+        Set<PosixFilePermission> perms = null;
+        if (mode != null) {
+            perms = EnumSet.noneOf(PosixFilePermission.class);
+            int m = mode; // auto-unbox once;
+            if ((m & OWNER_READ) != 0) {
+                perms.add(PosixFilePermission.OWNER_READ);
+            }
+            if ((m & OWNER_WRITE) != 0) {
+                perms.add(PosixFilePermission.OWNER_WRITE);
+            }
+            if ((m & OWNER_EXECUTE) != 0) {
+                perms.add(PosixFilePermission.OWNER_EXECUTE);
+            }
+            if ((m & GROUP_READ) != 0) {
+                perms.add(PosixFilePermission.GROUP_READ);
+            }
+            if ((m & GROUP_WRITE) != 0) {
+                perms.add(PosixFilePermission.GROUP_WRITE);
+            }
+            if ((m & GROUP_EXECUTE) != 0) {
+                perms.add(PosixFilePermission.GROUP_EXECUTE);
+            }
+            if ((m & OTHERS_READ) != 0) {
+                perms.add(PosixFilePermission.OTHERS_READ);
+            }
+            if ((m & OTHERS_WRITE) != 0) {
+                perms.add(PosixFilePermission.OTHERS_WRITE);
+            }
+            if ((m & OTHERS_EXECUTE) != 0) {
+                perms.add(PosixFilePermission.OTHERS_EXECUTE);
+            }
+            perms = Collections.unmodifiableSet(perms);
+        }
+        return perms;
     }
 
-    public void setSetUid(boolean setUid) {
-        this.setUid = setUid;
+    public void setPermissions(Set<PosixFilePermission> permissions) {
+        Integer newmode = null;
+        if (permissions != null && !permissions.isEmpty()) {
+            int m = 0;
+            EnumSet<PosixFilePermission> perms = EnumSet.copyOf(permissions);
+            if (perms.contains(PosixFilePermission.OWNER_READ)) {
+                m |= OWNER_READ;
+            }
+            if (perms.contains(PosixFilePermission.OWNER_WRITE)) {
+                m |= OWNER_WRITE;
+            }
+            if (perms.contains(PosixFilePermission.OWNER_EXECUTE)) {
+                m |= OWNER_EXECUTE;
+            }
+            if (perms.contains(PosixFilePermission.GROUP_READ)) {
+                m |= GROUP_READ;
+            }
+            if (perms.contains(PosixFilePermission.GROUP_WRITE)) {
+                m |= GROUP_WRITE;
+            }
+            if (perms.contains(PosixFilePermission.GROUP_EXECUTE)) {
+                m |= GROUP_EXECUTE;
+            }
+            if (perms.contains(PosixFilePermission.OTHERS_READ)) {
+                m |= OTHERS_READ;
+            }
+            if (perms.contains(PosixFilePermission.OTHERS_WRITE)) {
+                m |= OTHERS_WRITE;
+            }
+            if (perms.contains(PosixFilePermission.OTHERS_EXECUTE)) {
+                m |= OTHERS_EXECUTE;
+            }
+            newmode = m;
+        }
+        mode = newmode;
     }
 
-    public boolean isSetGid() {
-        return setGid;
-    }
-
-    public void setSetGid(boolean setGid) {
-        this.setGid = setGid;
-    }
-
-    public boolean isSticky() {
-        return sticky;
-    }
-
-    public void setSticky(boolean sticky) {
-        this.sticky = sticky;
-    }
-
-    public int getUid() {
+    public Integer getUid() {
         return uid;
     }
 
-    public void setUid(int uid) {
+    public void setUid(Integer uid) {
         this.uid = uid;
     }
 
-    public int getGid() {
+    public Integer getGid() {
         return gid;
     }
 
-    public void setGid(int gid) {
+    public void setGid(Integer gid) {
         this.gid = gid;
     }
 
-    public long getSize() {
+    public Long getSize() {
         return size;
     }
 
-    public void setSize(long size) {
+    public void setSize(Long size) {
         this.size = size;
     }
 
@@ -248,11 +284,11 @@ public class TarEntry {
         this.ctime = ctime;
     }
 
-    public int getChksum() {
+    public Integer getChksum() {
         return chksum;
     }
 
-    public void setChksum(int chksum) {
+    public void setChksum(Integer chksum) {
         this.chksum = chksum;
     }
 
@@ -304,19 +340,19 @@ public class TarEntry {
         this.gname = gname;
     }
 
-    public int getDevmajor() {
+    public Integer getDevmajor() {
         return devmajor;
     }
 
-    public void setDevmajor(int devmajor) {
+    public void setDevmajor(Integer devmajor) {
         this.devmajor = devmajor;
     }
 
-    public int getDevminor() {
+    public Integer getDevminor() {
         return devminor;
     }
 
-    public void setDevminor(int devminor) {
+    public void setDevminor(Integer devminor) {
         this.devminor = devminor;
     }
 

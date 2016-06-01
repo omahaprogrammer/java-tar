@@ -21,18 +21,18 @@ package com.pazdev.jtar;
  */
 public final class TarConstants {
 
-    public static final short S_ISUID = 04000;
-    public static final short S_ISGID = 02000;
-    public static final short S_ISTKY = 01000;
-    public static final short S_IRUSR = 00400;
-    public static final short S_IWUSR = 00200;
-    public static final short S_IXUSR = 00100;
-    public static final short S_IRGRP = 00040;
-    public static final short S_IWGRP = 00020;
-    public static final short S_IXGRP = 00010;
-    public static final short S_IROTH = 00004;
-    public static final short S_IWOTH = 00002;
-    public static final short S_IXOTH = 00001;
+    public static final short SET_UID = 04000;
+    public static final short SET_GID = 02000;
+    public static final short STICKY = 01000;
+    public static final short OWNER_READ = 00400;
+    public static final short OWNER_WRITE = 00200;
+    public static final short OWNER_EXECUTE = 00100;
+    public static final short GROUP_READ = 00040;
+    public static final short GROUP_WRITE = 00020;
+    public static final short GROUP_EXECUTE = 00010;
+    public static final short OTHERS_READ = 00004;
+    public static final short OTHERS_WRITE = 00002;
+    public static final short OTHERS_EXECUTE = 00001;
 
     public static final char REGTYPE = '0';
     public static final char AREGTYPE = '\0';

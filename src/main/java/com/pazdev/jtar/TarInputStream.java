@@ -24,8 +24,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.attribute.FileTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -49,17 +51,17 @@ import java.util.regex.Pattern;
  */
 public class TarInputStream extends BufferedInputStream {
     /**
-     * The length of the current entry.
+     * The length of the current newEntry.
      */
     protected long entrylen;
 
     /**
-     * The current position of the current entry.
+     * The current position of the current newEntry.
      */
     protected long entrypos;
 
     /**
-     * The current entry being read.
+     * The current newEntry being read.
      */
     protected TarEntry entry;
 
@@ -75,8 +77,8 @@ public class TarInputStream extends BufferedInputStream {
     private TarEntry globalEntry;
 
     /**
-     * Creates a new TAR input stream. The blocksize is defaulted to 10240 as specified
-     * in the Posix standard.
+     * Creates a new TAR input stream. The blocksize is defaulted to 10240 as
+     * specified in the Posix standard.
      * 
      * @param in The actual input stream
      */
@@ -103,9 +105,10 @@ public class TarInputStream extends BufferedInputStream {
     }
 
     /**
-     * Reads the next TAR file entry and positions the stream at the beginning
-     * of the entry data.
-     * @return the next TAR entry or {@code null} if there are no more entries
+     * Reads the next TAR file newEntry and positions the stream at the beginning
+     * of the newEntry data.
+     * 
+     * @return the next TAR newEntry or {@code null} if there are no more entries
      * @throws TarException if a TAR file exception occurred 
      * @throws IOException if an I/O exception occurred
      */
@@ -122,6 +125,7 @@ public class TarInputStream extends BufferedInputStream {
             readblock();
             if (isZeroBlock()) {
                 eof = true;
+                return null;
             }
         }
         processEntry();
@@ -140,8 +144,8 @@ public class TarInputStream extends BufferedInputStream {
     }
 
     /**
-     * Closes the current TAR entry and positions the stream for reading the next
-     * entry.
+     * Closes the current TAR newEntry and positions the stream for reading the next
+ newEntry.
      * 
      * @throws TarException if a TAR file exception occurred 
      * @throws IOException if an I/O exception occurred
@@ -156,9 +160,10 @@ public class TarInputStream extends BufferedInputStream {
 
     /**
      * Returns an estimate of the number of bytes that can be read (or skipped
-     * over) in the current TAR entry without blocking by the next invocation of
-     * a method for this input stream. This method will return 0 if there are no
-     * more remaining bytes in this entry.
+     * over) in the current TAR newEntry without blocking by the next invocation
+     * of a method for this input stream. This method will return 0 if there are
+     * no more remaining bytes in this newEntry.
+     * 
      * @return an estimate of the number of bytes that can be read (or skipped
      * over) without blocking.
      * @throws IOException  if an I/O exception occurs
@@ -173,11 +178,11 @@ public class TarInputStream extends BufferedInputStream {
 
     /**
      * <p>
-     * Reads from the current TAR entry into an array of bytes. An attempt is made
-     * to read as many as {@code len} bytes, but a smaller number may be read. The
-     * actual number of bytes read is returned. If there are no many bytes to read
-     * in the current entry, the method will return -1.
-     * </p>
+ Reads from the current TAR newEntry into an array of bytes. An attempt is made
+ to read as many as {@code len} bytes, but a smaller number may be read. The
+ actual number of bytes read is returned. If there are no many bytes to read
+ in the current newEntry, the method will return -1.
+ </p>
      * 
      * <p>
      * If len is not zero, the method blocks until some input is available;
@@ -187,7 +192,7 @@ public class TarInputStream extends BufferedInputStream {
      * @param b the buffer into which the data will be read
      * @param off the start offset in destination {@code b}
      * @param len the maximum number of bytes to read
-     * @return The actual number of bytes read, or -1 if at the end of the entry
+     * @return The actual number of bytes read, or -1 if at the end of the newEntry
      * @throws NullPointerException if {@code b} is null
      * @throws IndexOutOfBoundsException if either {@code off} or {@code len} is
      * negative or if {@code len} is greater than {@code b.length - off}
@@ -206,9 +211,9 @@ public class TarInputStream extends BufferedInputStream {
     }
 
     /**
-     * Skips the given number of bytes in the current TAR entry.
+     * Skips the given number of bytes in the current TAR newEntry.
      * 
-     * @param n the maximum number of bytes to skip in the current entry
+     * @param n the maximum number of bytes to skip in the current newEntry
      * @return the actual number of bytes skipped.
      * @throws IllegalArgumentException if {@code n} is negative
      * @throws IOException if an I/O exception occurred
@@ -247,6 +252,7 @@ public class TarInputStream extends BufferedInputStream {
     }
 
     private void processEntry() throws IOException {
+        verifyChecksum(blockarray);
         String magic = getStringValue(blockarray, MAGIC_OFFSET, GNU_MAGIC_LENGTH);
         switch (magic) {
             case "ustar":
@@ -263,10 +269,24 @@ public class TarInputStream extends BufferedInputStream {
         }
         if (entry != null) {
             entrylen = entry.getSize();
+            if (entrylen < block.limit()) {
+                block.limit((int)entrylen);
+            }
             entrypos = 0;
+            switch (entry.getTypeflag()) {
+                case SYMTYPE:
+                case DIRTYPE:
+                case CHRTYPE:
+                case BLKTYPE:
+                    entrylen = 0;
+                    block.limit(0);
+                    break;
+            }
         } else {
             entrylen = 0;
+            block.limit(0);
         }
+        entryeof = entrylen <= 0;
     }
 
     private void processPosix() throws IOException {
@@ -276,8 +296,8 @@ public class TarInputStream extends BufferedInputStream {
             case XGLTYPE:
                 globalEntry = tarEntryFromExtendedHeader();
                 readblock();
-                processEntry();
-                return; // This wasn't a normal header, so I need to start over with the processing
+                processEntry(); // This wasn't a normal header, so I need to start over with the processing
+                return; // no more processing
             case XHDTYPE:
                 extendedHeader = tarEntryFromExtendedHeader();
                 readblock();
@@ -293,7 +313,7 @@ public class TarInputStream extends BufferedInputStream {
     Pattern paramPattern = compile("(\\d*) ([^=]*)=(.*)\n", DOTALL | UNIX_LINES);
     private TarEntry tarEntryFromExtendedHeader() throws IOException {
         TarEntry newEntry = new TarEntry();
-        int size = (int) entry.getSize(); // the extended header has no business being bigger than 2GB, so this is safe.
+        int size = entry.getSize().intValue(); // the extended header has no business being bigger than 2GB, so this is safe.
         int blocksToRead = (size + 511) / 512;
         int bytesToRead = blocksToRead * 512;
         int offset = 0;
@@ -330,40 +350,40 @@ public class TarInputStream extends BufferedInputStream {
                 }
                 switch (key) {
                     case "atime":
-                        entry.setAtime(value);
+                        newEntry.setAtime(value);
                         break;
                     case "charset":
-                        entry.setCharset(charsetFromString(value));
+                        newEntry.setCharset(charsetFromString(value));
                         break;
                     case "comment":
-                        entry.setComment(value);
+                        newEntry.setComment(value);
                         break;
                     case "gid":
-                        entry.setGid(Integer.parseInt(value));
+                        newEntry.setGid(Integer.parseInt(value));
                         break;
                     case "gname":
-                        entry.setGname(value);
+                        newEntry.setGname(value);
                         break;
                     case "linkpath":
-                        entry.setLinkname(value);
+                        newEntry.setLinkname(value);
                         break;
                     case "mtime":
-                        entry.setMtime(value);
+                        newEntry.setMtime(value);
                         break;
                     case "path":
-                        entry.setName(value);
+                        newEntry.setName(value);
                         break;
                     case "size":
-                        entry.setSize(Long.parseLong(value));
+                        newEntry.setSize(Long.parseLong(value));
                         break;
                     case "uid":
-                        entry.setUid(Integer.parseInt(value));
+                        newEntry.setUid(Integer.parseInt(value));
                         break;
                     case "uname":
-                        entry.setUname(value);
+                        newEntry.setUname(value);
                         break;
                     default:
-                        Map<String, String> extra = entry.getExtraHeaders();
+                        Map<String, String> extra = newEntry.getExtraHeaders();
                         if (extra == null) {
                             extra = new HashMap<>();
                         }
@@ -375,28 +395,92 @@ public class TarInputStream extends BufferedInputStream {
                         if (extra.isEmpty()) {
                             extra = null;
                         }
-                        entry.setExtraHeaders(extra);
+                        newEntry.setExtraHeaders(extra);
                         break;
                 }
             }
         }
-        return null;
+        return newEntry;
     }
 
-    private void processUstar() {
-
+    private void processUstar() throws IOException {
+        processV7();
+        entry.setMagic(getStringValue(blockarray, MAGIC_OFFSET, MAGIC_LENGTH));
+        entry.setVersion(getStringValue(blockarray, VERSION_OFFSET, VERSION_LENGTH));
+        entry.setUname(getStringValue(blockarray, UNAME_OFFSET, UNAME_LENGTH));
+        entry.setGname(getStringValue(blockarray, GNAME_OFFSET, GNAME_LENGTH));
+        entry.setDevmajor(getNumericValue(blockarray, DEVMAJOR_OFFSET, DEVMAJOR_LENGTH));
+        entry.setDevminor(getNumericValue(blockarray, DEVMINOR_OFFSET, DEVMINOR_LENGTH));
+        String prefix = getStringValue(blockarray, PREFIX_OFFSET, PREFIX_LENGTH);
+        if (prefix != null && !prefix.isEmpty()) {
+            entry.setName(prefix + "/" + entry.getName());
+        }
     }
 
     private void processV7() throws IOException {
+        entry = new TarEntry(getStringValue(blockarray, NAME_OFFSET, NAME_LENGTH));
+        entry.setMode(getNumericValue(blockarray, MODE_OFFSET, MODE_LENGTH));
+        entry.setUid(getNumericValue(blockarray, UID_OFFSET, UID_LENGTH));
+        entry.setGid(getNumericValue(blockarray, GID_OFFSET, GID_LENGTH));
+        entry.setSize(getLongNumericValue(blockarray, SIZE_OFFSET, SIZE_LENGTH));
+        entry.setMtime(FileTime.from(getLongNumericValue(blockarray, MTIME_OFFSET, MTIME_LENGTH), TimeUnit.SECONDS));
+        entry.setChksum(getNumericValue(blockarray, CHKSUM_OFFSET, CHKSUM_LENGTH));
+        entry.setTypeflag((char) (0x00ff & blockarray[TYPEFLAG_OFFSET]));
+        entry.setLinkname(getStringValue(blockarray, LINKNAME_OFFSET, LINKNAME_LENGTH));
+    }
+
+    private String readGnuString() throws IOException {
+        int size = entry.getSize().intValue(); // the long name or link name has no business being bigger than 2GB, so this is safe.
+        int blocksToRead = (size + 511) / 512;
+        int bytesToRead = blocksToRead * 512;
+        int offset = 0;
+        byte[] bytes = new byte[bytesToRead];
+        
+        while (bytesToRead > 0) {
+            int ct = super.read(bytes, offset, bytesToRead);
+            if (ct == -1) {
+                throw new TarException("EOF before finished reading header");
+            }
+            offset += ct;
+            bytesToRead -= ct;
+        }
+        return new String(bytes);
     }
 
     private void processGnu() throws IOException {
-
+        char typeflag = (char) (0x00ff & blockarray[TYPEFLAG_OFFSET]);
+        boolean atFile;
+        String longname = null;
+        String longlink = null;
+        do {
+            atFile = true;
+            switch (typeflag) {
+                case GNUTYPE_LONGLINK:
+                    longlink = readGnuString();
+                    readblock();
+                    atFile = false;
+                    break;
+                case GNUTYPE_LONGNAME:
+                    longname = readGnuString();
+                    readblock();
+                    atFile = false;
+                    break;
+            }
+        } while (!atFile);
+        processV7();
+        entry.setMagic(getStringValue(blockarray, MAGIC_OFFSET, MAGIC_LENGTH));
+        entry.setVersion(getStringValue(blockarray, VERSION_OFFSET, VERSION_LENGTH));
+        entry.setUname(getStringValue(blockarray, UNAME_OFFSET, UNAME_LENGTH));
+        entry.setGname(getStringValue(blockarray, GNAME_OFFSET, GNAME_LENGTH));
+        entry.setDevmajor(getNumericValue(blockarray, DEVMAJOR_OFFSET, DEVMAJOR_LENGTH));
+        entry.setDevminor(getNumericValue(blockarray, DEVMINOR_OFFSET, DEVMINOR_LENGTH));
+        entry.setAtime(FileTime.from(getLongNumericValue(blockarray, GNU_ATIME_OFFSET, GNU_ATIME_LENGTH), TimeUnit.SECONDS));
+        entry.setCtime(FileTime.from(getLongNumericValue(blockarray, GNU_CTIME_OFFSET, GNU_CTIME_LENGTH), TimeUnit.SECONDS));
     }
 
     private boolean readblock() throws IOException {
         ensureOpen();
-        if (eof || entryeof) {
+        if (eof || (entry != null && entryeof)) {
             return false;
         }
         block.clear();
@@ -410,10 +494,12 @@ public class TarInputStream extends BufferedInputStream {
             }
             readct += ct;
         } while (readct < 512);
-        entrypos += 512;
-        if (entrypos >= entrylen) {
-            entryeof = true;
-            block.limit(block.capacity() - (int) (entrypos - entrylen));
+        if (entry != null) {
+            entrypos += 512;
+            if (entrypos >= entrylen) {
+                entryeof = true;
+                block.limit(block.capacity() - (int) (entrypos - entrylen));
+            }
         }
         return true;
     }

@@ -16,6 +16,7 @@
 package com.pazdev.jtar;
 
 import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
@@ -35,9 +36,9 @@ import java.nio.charset.UnsupportedCharsetException;
  */
 class TarUtils {
  	public static String getStringValue(byte[] block, int offset, int length) {
-		for (int i = offset; i < length; i++) {
+		for (int i = offset; i < offset + length; i++) {
 			if (block[i] == 0) {
-				length = i;
+				length = i - offset;
 				break;
 			}
 		}
@@ -73,23 +74,56 @@ class TarUtils {
 	}
 	
 	private static String getNumberString(byte[] block, int offset, int length) {
-		for (int i = offset; i < length; i++) {
+		for (int i = offset; i < offset + length; i++) {
 			if (block[i] == 0 || block[i] == ' ') {
-				length = i;
+				length = i - offset;
 				break;
 			}
 		}
 		return new String(block, offset, length, StandardCharsets.US_ASCII);
 	}
+
+    private static BigInteger getBase256Number(byte[] block, int offset, int length) {
+        byte[] buf = new byte[length];
+        System.arraycopy(block, offset, buf, 0, length);
+        if ((buf[0] & 0b0100_0000) != 0) {
+            buf[0] &= 0b0011_1111;
+        }
+        return new BigInteger(buf);
+    }
 	
-	public static int getNumericValue(byte[] block, int offset, int length) {
-		String strval = getNumberString(block, offset, length);
-		return Integer.parseUnsignedInt(strval, 8);
+	public static int getNumericValue(byte[] block, int offset, int length) throws TarException {
+        int retval = 0;
+        byte firstByte = block[offset];
+        if ((firstByte & 0b1000_0000) != 0) {
+            BigInteger val = getBase256Number(block, offset, length);
+            try {
+                retval = val.intValueExact();
+            } catch (ArithmeticException e) {
+                throw new TarException("Cannot fit value into integer");
+            }
+        } else {
+            String strval = getNumberString(block, offset, length);
+            retval = Integer.parseUnsignedInt(strval, 8);
+        }
+        return retval;
 	}
 	
-	public static long getLongNumericValue(byte[] block, int offset, int length) {
-		String strval = getNumberString(block, offset, length);
-		return Long.parseUnsignedLong(strval, 8);
+	public static long getLongNumericValue(byte[] block, int offset, int length) throws TarException {
+        long retval = 0;
+        byte firstByte = block[offset];
+        if ((firstByte & 0b1000_0000) != 0) {
+            BigInteger val = getBase256Number(block, offset, length);
+            try {
+                retval = val.longValueExact();
+            } catch (ArithmeticException e) {
+                throw new TarException("Cannot fit value into integer");
+            }
+        } else {
+            String strval = getNumberString(block, offset, length);
+            retval = Long.parseUnsignedLong(strval, 8);
+        }
+        return retval;
 	}
 	
 	public static void setNumericValue(long value, byte[] block, int offset, int length) {
@@ -186,6 +220,21 @@ class TarUtils {
                 return "ISO-IR 8859 15 1999";
             default:
                 return null;
+        }
+    }
+
+    public static void verifyChecksum(byte[] block) throws TarException {
+        int chksum = getNumericValue(block, TarConstants.CHKSUM_OFFSET, TarConstants.CHKSUM_LENGTH);
+        int sum = 0;
+        for (int i = block.length - 1; i >= 0; --i) {
+            if (i >= TarConstants.CHKSUM_OFFSET && i < TarConstants.TYPEFLAG_OFFSET) {
+                sum += ' ';
+            } else {
+                sum += block[i];
+            }
+        }
+        if (chksum != sum) {
+            throw new TarException("The checksum did not validate correctly");
         }
     }
 
