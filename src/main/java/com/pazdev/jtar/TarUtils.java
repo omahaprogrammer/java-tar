@@ -238,6 +238,19 @@ class TarUtils {
         }
     }
 
+    public static String makeRecord(String key, String value) {
+        StringBuilder builder = new StringBuilder(" ");
+        builder.append(key).append('=').append(value).append('\n');
+        int len = builder.length();
+        int lenchrct = (int)Math.log10(len) + 1;
+        while (lenchrct != (int)Math.log10(lenchrct+len) + 1) {
+            lenchrct = (int)Math.log10(lenchrct+len) + 1;
+        }
+        len += lenchrct;
+        builder.insert(0, len);
+        return builder.toString();
+    }
+
 	private TarUtils() {
 		throw new UnsupportedOperationException("Cannot instantiate object");
 	}   

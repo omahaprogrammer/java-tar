@@ -16,11 +16,13 @@
 package com.pazdev.jtar;
 
 import static com.pazdev.jtar.TarConstants.*;
+import static com.pazdev.jtar.TarUtils.*;
 
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 /**
  *
@@ -182,6 +184,39 @@ public class TarOutputStream extends BufferedOutputStream {
         if (closed) throw new IOException("Cannot perform I/O operations on a closed stream");
     }
 
+    private String[] splitName() {
+        if (entry.getName().length() < 100) {
+            return new String[] {entry.getName()};
+        } else {
+            String[] parts = entry.getName().split("/");
+            int ct = parts.length;
+            int idx = ct - 1;
+            while (idx > 0) {
+                StringBuilder pb = new StringBuilder();
+                StringBuilder nb = new StringBuilder();
+                String prefix, name;
+                for (int i = 0; i < ct; i++) {
+                    if (i < idx) {
+                        pb.append('/').append(parts[i]);
+                    } else {
+                        nb.append('/').append(parts[i]);
+                    }
+                }
+                pb.deleteCharAt(0);
+                nb.deleteCharAt(0);
+                prefix = pb.toString();
+                name = nb.toString();
+                if (prefix.length() <= 155 && name.length() <= 100) {
+                    return new String[] {name, prefix};
+                } else if (prefix.length() > 155 && name.length() > 100) {
+                    return null;
+                }
+                --idx;
+            }
+            return null;
+        }
+    }
+
     /**
      * Checks the given entry to verify that it will produce a valid TAR header.
      * These checks are heavily dependent on the specified entry format.
@@ -190,36 +225,181 @@ public class TarOutputStream extends BufferedOutputStream {
      * @throws TarException if the entry is malformed.
      */
     private void checkEntry(TarEntry entry) throws TarFormatException {
-        // check name
         switch (entry.getFormat()) {
             case V7:
-                if (entry.getName().length() > 100) {
-                    throw new TarFormatException("Name cannot be longer than 100 characters");
+                if (entry.getName().length() > 99) {
+                    throw new TarFormatException("Name cannot be longer than 99 characters");
+                }
+                switch (entry.getTypeflag()) {
+                    case REGTYPE:
+                    case AREGTYPE:
+                    case LNKTYPE:
+                    case SYMTYPE:
+                        // we're good
+                        break;
+                    default:
+                        throw new TarFormatException("Unsupported typeflag");
+                }
+                if (entry.getTypeflag() == LNKTYPE && entry.getSize() != 0) {
+                    throw new TarFormatException("The size for a hard link must be zero for this format");
+                }
+                if (entry.getUid() > 07777777) {
+                    throw new TarFormatException("uid too large");
+                }
+                if (entry.getGid() > 07777777) {
+                    throw new TarFormatException("gid too large");
+                }
+                if (entry.getSize() > 077777777777l) {
+                    throw new TarFormatException("size too large");
+                }
+                if (entry.getMtime().to(TimeUnit.SECONDS) > 077777777777l) {
+                    throw new TarFormatException("mtime too large");
+                }
+                if (entry.getLinkname().length() > 99) {
+                    throw new TarFormatException("linkname too large");
                 }
                 break;
             case USTAR:
-                String name = entry.getName();
-                String prefix = "";
+                if (splitName() == null) {
+                    throw new TarFormatException("The name is too long and can't be split to fit");
+                }
+                if (entry.getTypeflag() == LNKTYPE && entry.getSize() != 0) {
+                    throw new TarFormatException("The size for a hard link must be zero for this format");
+                }
+                if (entry.getUid() > 07777777) {
+                    throw new TarFormatException("uid too large");
+                }
+                if (entry.getGid() > 07777777) {
+                    throw new TarFormatException("gid too large");
+                }
+                if (entry.getSize() > 077777777777l) {
+                    throw new TarFormatException("size too large");
+                }
+                if (entry.getMtime().to(TimeUnit.SECONDS) > 077777777777l) {
+                    throw new TarFormatException("mtime too large");
+                }
+                if (entry.getLinkname().length() > 100) {
+                    throw new TarFormatException("linkname too large");
+                }
+                if (entry.getUname().length() > 32) {
+                    throw new TarFormatException("uname too large");
+                }
+                if (entry.getGname().length() > 32) {
+                    throw new TarFormatException("gname too large");
+                }
+                if (entry.getDevmajor() > 07777777) {
+                    throw new TarFormatException("devmajor too large");
+                }
+                if (entry.getDevminor() > 07777777) {
+                    throw new TarFormatException("devminor too large");
+                }
+                break;
+            case GNU:
+                if (entry.getTypeflag() == LNKTYPE && entry.getSize() != 0) {
+                    throw new TarFormatException("The size for a hard link must be zero for this format");
+                }
+                break;
+            default:
+                if (entry.getDevmajor() > 07777777) {
+                    throw new TarFormatException("devmajor too large");
+                }
+                if (entry.getDevminor() > 07777777) {
+                    throw new TarFormatException("devminor too large");
+                }
                 break;
         }
         
-        // check size
-        switch (entry.getTypeflag()) {
-            case LNKTYPE:
-                if (!TarFormat.PAX.equals(entry.getFormat()) && entry.getSize() != 0) {
-                    throw new TarFormatException("The size for this type of file must be zero");
-                }
-                break;
-            case SYMTYPE:
-                if (entry.getSize() != 0) {
-                    throw new TarFormatException("The size for this type of file must be zero");
-                }
-                break;
-        }
-
     }
 
     private void writeEntry() throws IOException {
-        
+        switch (entry.getFormat()) {
+            case GNU:
+                writeGNU();
+                break;
+            case PAX:
+                writePAX();
+                break;
+            case USTAR:
+                writeUSTAR();
+                break;
+            case V7:
+                writeV7();
+                break;
+        }
+    }
+
+    private byte[] populateV7() throws IOException {
+        byte[] block = new byte[512];
+        String[] name = splitName();
+        setStringValue(name[0], block, NAME_OFFSET, NAME_LENGTH, entry.getFormat().equals(TarFormat.V7));
+        setNumericValue(entry.getMode(), block, MODE_OFFSET, MODE_LENGTH);
+        setNumericValue(entry.getUid(), block, UID_OFFSET, UID_LENGTH);
+        setNumericValue(entry.getGid(), block, GID_OFFSET, GID_LENGTH);
+        setNumericValue(entry.getSize(), block, SIZE_OFFSET, SIZE_LENGTH);
+        setNumericValue(entry.getMtime().to(TimeUnit.SECONDS), block, MTIME_OFFSET, MTIME_LENGTH);
+        setStringValue("        ", block, CHKSUM_OFFSET, CHKSUM_LENGTH, false);
+        block[TYPEFLAG_OFFSET] = (byte)entry.getTypeflag();
+        setStringValue(entry.getLinkname(), block, LINKNAME_OFFSET, LINKNAME_LENGTH, false);
+        if (name.length > 1) {
+            setStringValue(name[1], block, PREFIX_OFFSET, PREFIX_LENGTH, false);
+        }
+        return block;
+    }
+
+    private byte[] populateUSTAR() throws IOException {
+        byte[] block = populateV7();
+        setStringValue(entry.getMagic(), block, MAGIC_OFFSET, MAGIC_LENGTH, true);
+        setStringValue(entry.getVersion(), block, VERSION_OFFSET, VERSION_LENGTH, false);
+        setStringValue(entry.getUname(), block, UNAME_OFFSET, UNAME_LENGTH, true);
+        setStringValue(entry.getGname(), block, GNAME_OFFSET, GNAME_LENGTH, true);
+        setNumericValue(entry.getDevmajor(), block, DEVMAJOR_OFFSET, DEVMAJOR_LENGTH);
+        setNumericValue(entry.getDevminor(), block, DEVMINOR_OFFSET, DEVMINOR_LENGTH);
+        return block;
+    }
+
+    private void writeV7() throws IOException {
+        byte[] block = populateV7();
+        setChksum(block);
+        super.write(block);
+    }
+
+    private void writeUSTAR() throws IOException {
+        byte[] block = populateUSTAR();
+        setChksum(block);
+        super.write(block);
+    }
+
+    private void writeGNU() throws IOException {
+    }
+
+    private void writePAX() throws IOException {
+        String[] split = splitName();
+        boolean bigname = split == null;
+        boolean biguid = entry.getUid() < 0 || entry.getUid() > 07777777;
+        boolean biggid = entry.getGid() < 0 || entry.getGid() > 07777777;
+        boolean bigsize = entry.getSize() > 077777777777l;
+        boolean bigmtime = entry.getMtime().to(TimeUnit.SECONDS) > 077777777777l;
+        boolean biglink = entry.getLinkname().length() > 100;
+        boolean biguser = entry.getUname().length() > 32;
+        boolean biggroup = entry.getGname().length() > 32;
+        boolean hasatime = entry.getAtime() != null;
+        boolean hasctime = entry.getCtime() != null;
+        boolean hascharset = entry.getCharset() != null;
+        boolean hascomment = entry.getComment() != null && !entry.getComment().isEmpty();
+        boolean hasextra = entry.getExtraHeaders() != null && !entry.getExtraHeaders().isEmpty();
+        boolean doextra = bigname || biguid || biggid || bigsize || bigmtime || biglink || biguser || biggroup || hasatime || hasctime || hascharset || hascomment || hasextra;
+        if (doextra) {
+
+        } else {
+            writeUSTAR();
+        }
+    }
+
+    private void setChksum(byte[] block) {
+        int chk = 0;
+        for (int i = 511; i >= 0; --i) {
+            chk += block[i];
+        }
+        setNumericValue(chk, block, CHKSUM_OFFSET, CHKSUM_LENGTH);
     }
 }

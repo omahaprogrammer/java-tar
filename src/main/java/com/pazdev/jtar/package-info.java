@@ -20,6 +20,21 @@
  * package is meant to be as analogous as possible to the {@code java.util.zip}
  * package, with the differences being due to the nature of the TAR format.
  * </p>
+ * <h2>Supported formats</h2>
+ * <ul>
+ * <li>POSIX (pax)</li>
+ * <li>
+ * GNU - does not support multi-volume, sparse, dump directory, or volume heading
+ * types. This system <em>does</em> support the enhanced number system (base256).
+ * </li>
+ * <li>
+ * Old GNU - This system can read, but will not be able to write, this format. The
+ * difference between this format and the GNU format is that this format will
+ * <em>always</em> null-terminate name and prefix header fields.
+ * </li>
+ * <li>USTAR</li>
+ * <li>Original (v7)</li>
+ * </ul>
  * <h2>Major differences</h2>
  * <ul>
  * <li>
@@ -34,7 +49,10 @@
  * <li>
  * No relation to {@code InflatorInputStream} or {@code DeflatorOutputStream} - 
  * The TAR file format does not support internal compression the same way ZIP
- * files do. The files are compressed after they are formed. It is viable.
+ * files do. The files are compressed after they are formed. It is a reasonable
+ * structure to have {@code TarInputStream} and {@code TarOutputStream} instances
+ * wrap a decompressing input stream or compressing output stream to zip the files
+ * up on the fly.
  * </li>
  * </ul>
  * @author Jonathan Paz jonathan.paz@pazdev.com
