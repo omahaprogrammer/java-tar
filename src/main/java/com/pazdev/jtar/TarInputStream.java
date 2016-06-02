@@ -51,30 +51,61 @@ import java.util.regex.Pattern;
  */
 public class TarInputStream extends BufferedInputStream {
     /**
-     * The length of the current newEntry.
+     * The length of the current entry.
      */
     protected long entrylen;
 
     /**
-     * The current position of the current newEntry.
+     * The current position of the current entry.
      */
     protected long entrypos;
 
     /**
-     * The current newEntry being read.
+     * The current entry being read.
      */
     protected TarEntry entry;
 
+    /**
+     * The closed status of this stream.
+     */
     private boolean closed;
 
+    /**
+     * The array representing the current block.
+     */
     private final byte[] blockarray = new byte[512];
+
+    /**
+     * The byte buffer wrapping the block array. This helps the stream read data
+     * from the block.
+     */
     private final ByteBuffer block = ByteBuffer.wrap(blockarray);
+
+    /**
+     * Whether the end of the file has been reached (two zero-blocks).
+     */
     private boolean eof = false;
+
+    /**
+     * Whether the end of the entry has been reached.
+     */
     private boolean entryeof = false;
 
+    /**
+     * A temporary buffer useful for putting in data for reads while doing non-reading
+     * things.
+     */
     private final byte[] tmpbuf = new byte[512];
 
+    /**
+     * The global entry if it has been found.
+     */
     private TarEntry globalEntry;
+
+    /**
+     * The regex pattern to help read an extended header record.
+     */
+    private static final Pattern PARAM_PATTERN = compile("(\\d*) ([^=]*)=(.*)\n", DOTALL | UNIX_LINES);
 
     /**
      * Creates a new TAR input stream. The blocksize is defaulted to 10240 as
@@ -105,12 +136,12 @@ public class TarInputStream extends BufferedInputStream {
     }
 
     /**
-     * Reads the next TAR file newEntry and positions the stream at the beginning
-     * of the newEntry data.
+     * Reads the next TAR file entry and positions the stream at the beginning
+     * of the entry data.
      * 
-     * @return the next TAR newEntry or {@code null} if there are no more entries
+     * @return the next TAR entry or {@code null} if there are no more entries
      * @throws TarException if a TAR file exception occurred 
-     * @throws IOException if an I/O exception occurred
+     * @throws IOException if an I/O error occurred
      */
     public TarEntry getNextEntry() throws IOException {
         ensureOpen();
@@ -132,6 +163,11 @@ public class TarInputStream extends BufferedInputStream {
         return entry;
     }
 
+    /**
+     * Checks to see if the currently read block contains only zeroes.
+     * 
+     * @return true if the block is blank.
+     */
     private boolean isZeroBlock() {
         boolean zeroblock = true;
         while (block.hasRemaining()) {
@@ -144,11 +180,11 @@ public class TarInputStream extends BufferedInputStream {
     }
 
     /**
-     * Closes the current TAR newEntry and positions the stream for reading the next
- newEntry.
+     * Closes the current TAR entry and positions the stream for reading the
+     * next entry.
      * 
      * @throws TarException if a TAR file exception occurred 
-     * @throws IOException if an I/O exception occurred
+     * @throws IOException if an I/O error occurred
      */
     public void closeEntry() throws IOException {
         ensureOpen();
@@ -160,13 +196,13 @@ public class TarInputStream extends BufferedInputStream {
 
     /**
      * Returns an estimate of the number of bytes that can be read (or skipped
-     * over) in the current TAR newEntry without blocking by the next invocation
+     * over) in the current TAR entry without blocking by the next invocation
      * of a method for this input stream. This method will return 0 if there are
-     * no more remaining bytes in this newEntry.
+     * no more remaining bytes in this entry.
      * 
      * @return an estimate of the number of bytes that can be read (or skipped
      * over) without blocking.
-     * @throws IOException  if an I/O exception occurs
+     * @throws IOException  if an I/O error occurs
      */
     @Override
     public int available() throws IOException {
@@ -178,11 +214,11 @@ public class TarInputStream extends BufferedInputStream {
 
     /**
      * <p>
- Reads from the current TAR newEntry into an array of bytes. An attempt is made
- to read as many as {@code len} bytes, but a smaller number may be read. The
- actual number of bytes read is returned. If there are no many bytes to read
- in the current newEntry, the method will return -1.
- </p>
+     * Reads from the current TAR entry into an array of bytes. An attempt is made
+     * to read as many as {@code len} bytes, but a smaller number may be read. The
+     * actual number of bytes read is returned. If there are no many bytes to read
+     * in the current entry, the method will return -1.
+     * </p>
      * 
      * <p>
      * If len is not zero, the method blocks until some input is available;
@@ -192,12 +228,12 @@ public class TarInputStream extends BufferedInputStream {
      * @param b the buffer into which the data will be read
      * @param off the start offset in destination {@code b}
      * @param len the maximum number of bytes to read
-     * @return The actual number of bytes read, or -1 if at the end of the newEntry
+     * @return The actual number of bytes read, or -1 if at the end of the entry
      * @throws NullPointerException if {@code b} is null
      * @throws IndexOutOfBoundsException if either {@code off} or {@code len} is
      * negative or if {@code len} is greater than {@code b.length - off}
      * @throws TarException if a TAR exception occurred.
-     * @throws IOException if an I/O exception occurred.
+     * @throws IOException if an I/O error occurred.
      */
     @Override
     public int read(byte[] b, int off, int len) throws IOException {
@@ -211,12 +247,12 @@ public class TarInputStream extends BufferedInputStream {
     }
 
     /**
-     * Skips the given number of bytes in the current TAR newEntry.
+     * Skips the given number of bytes in the current TAR entry.
      * 
-     * @param n the maximum number of bytes to skip in the current newEntry
+     * @param n the maximum number of bytes to skip in the current entry
      * @return the actual number of bytes skipped.
      * @throws IllegalArgumentException if {@code n} is negative
-     * @throws IOException if an I/O exception occurred
+     * @throws IOException if an I/O error occurred
      */
     @Override
     public long skip(long n) throws IOException {
@@ -235,7 +271,7 @@ public class TarInputStream extends BufferedInputStream {
 
     /**
      * Closes this and the underlying input stream.
-     * @throws IOException if an I/O exception occurs.
+     * @throws IOException if an I/O error occured.
      */
     @Override
     public void close() throws IOException {
@@ -245,13 +281,27 @@ public class TarInputStream extends BufferedInputStream {
         }
     }
 
+    /**
+     * Called at the start of every method that performs a read or read-like
+     * operation to check if the file is closed.
+     * 
+     * @throws IOException if the file is closed
+     */
     private void ensureOpen() throws IOException {
         if (closed) {
             throw new IOException("The stream is closed");
         }
     }
 
-    private void processEntry() throws IOException {
+    /**
+     * Processes the new entry (starting at the current block) into a new TarEntry
+     * object. This method will move the input stream to the start of the file
+     * data if present.
+     * 
+     * @throws TarException if the entry information is malformed.
+     * @throws IOException if an I/O error occurred
+     */
+    private void processEntry() throws TarException, IOException {
         verifyChecksum(blockarray);
         String magic = getStringValue(blockarray, MAGIC_OFFSET, GNU_MAGIC_LENGTH);
         switch (magic) {
@@ -269,9 +319,6 @@ public class TarInputStream extends BufferedInputStream {
         }
         if (entry != null) {
             entrylen = entry.getSize();
-            if (entrylen < block.limit()) {
-                block.limit((int)entrylen);
-            }
             entrypos = 0;
             switch (entry.getTypeflag()) {
                 case SYMTYPE:
@@ -279,17 +326,21 @@ public class TarInputStream extends BufferedInputStream {
                 case CHRTYPE:
                 case BLKTYPE:
                     entrylen = 0;
-                    block.limit(0);
                     break;
             }
         } else {
             entrylen = 0;
-            block.limit(0);
         }
         entryeof = entrylen <= 0;
+        readblock();
     }
 
-    private void processPosix() throws IOException {
+    /**
+     * Processes the entry as a POSIX (pax) entry. 
+     * @throws TarException if the extended header information is flawed
+     * @throws IOException if an I/O error occurred
+     */
+    private void processPosix() throws TarException, IOException {
         char typeflag = (char) (0x00ff & blockarray[TYPEFLAG_OFFSET]);
         TarEntry extendedHeader = null;
         switch (typeflag) {
@@ -305,13 +356,27 @@ public class TarInputStream extends BufferedInputStream {
                 
         }
         processUstar();
+        entry.setFormat(TarFormat.PAX);
         if (extendedHeader != null) {
             entry.mergeEntry(extendedHeader);
         }
+        if (globalEntry != null) {
+            entry.mergeEntry(globalEntry);
+        }
     }
 
-    Pattern paramPattern = compile("(\\d*) ([^=]*)=(.*)\n", DOTALL | UNIX_LINES);
-    private TarEntry tarEntryFromExtendedHeader() throws IOException {
+    /**
+     * Creates a partial TarEntry object based on the information in the extended
+     * header. This TarEntry will be merged into entry created by the proper header
+     * to fill in the information missing from the proper header. This also reads
+     * the global header entry, and this entry will be used to merge into subsequent
+     * POSIX-style entries.
+     * 
+     * @return a partial TarEntry object for merging later.
+     * @throws TarException if the end of the file was hit before the header could be read.
+     * @throws IOException if an I/O error occurred
+     */
+    private TarEntry tarEntryFromExtendedHeader() throws TarException, IOException {
         TarEntry newEntry = new TarEntry();
         int size = entry.getSize().intValue(); // the extended header has no business being bigger than 2GB, so this is safe.
         int blocksToRead = (size + 511) / 512;
@@ -341,7 +406,7 @@ public class TarInputStream extends BufferedInputStream {
             byte[] paramarr = new byte[len];
             exthdr.get(paramarr);
             String param = new String(paramarr, StandardCharsets.UTF_8);
-            Matcher m = paramPattern.matcher(param);
+            Matcher m = PARAM_PATTERN.matcher(param);
             if (m.matches()) {
                 String key = m.group(2);
                 String value = m.group(3);
@@ -403,7 +468,13 @@ public class TarInputStream extends BufferedInputStream {
         return newEntry;
     }
 
-    private void processUstar() throws IOException {
+    /**
+     * Processes the current block as a USTAR heading. This is also used by
+     * {@link #processPosix()} to read the base header block.
+     * 
+     * @throws TarException if a numeric field is not convertible to a number.
+     */
+    private void processUstar() throws TarException {
         processV7();
         entry.setMagic(getStringValue(blockarray, MAGIC_OFFSET, MAGIC_LENGTH));
         entry.setVersion(getStringValue(blockarray, VERSION_OFFSET, VERSION_LENGTH));
@@ -417,7 +488,7 @@ public class TarInputStream extends BufferedInputStream {
         }
     }
 
-    private void processV7() throws IOException {
+    private void processV7() throws TarException {
         entry = new TarEntry(getStringValue(blockarray, NAME_OFFSET, NAME_LENGTH));
         entry.setMode(getNumericValue(blockarray, MODE_OFFSET, MODE_LENGTH));
         entry.setUid(getNumericValue(blockarray, UID_OFFSET, UID_LENGTH));
@@ -429,7 +500,7 @@ public class TarInputStream extends BufferedInputStream {
         entry.setLinkname(getStringValue(blockarray, LINKNAME_OFFSET, LINKNAME_LENGTH));
     }
 
-    private String readGnuString() throws IOException {
+    private String readGnuString() throws TarException, IOException {
         int size = entry.getSize().intValue(); // the long name or link name has no business being bigger than 2GB, so this is safe.
         int blocksToRead = (size + 511) / 512;
         int bytesToRead = blocksToRead * 512;
@@ -447,7 +518,7 @@ public class TarInputStream extends BufferedInputStream {
         return new String(bytes);
     }
 
-    private void processGnu() throws IOException {
+    private void processGnu() throws TarException, IOException {
         char typeflag = (char) (0x00ff & blockarray[TYPEFLAG_OFFSET]);
         boolean atFile;
         String longname = null;
@@ -468,8 +539,13 @@ public class TarInputStream extends BufferedInputStream {
             }
         } while (!atFile);
         processV7();
-        entry.setMagic(getStringValue(blockarray, MAGIC_OFFSET, MAGIC_LENGTH));
-        entry.setVersion(getStringValue(blockarray, VERSION_OFFSET, VERSION_LENGTH));
+        if (longname != null) {
+            entry.setName(longname);
+        }
+        if (longlink != null) {
+            entry.setLinkname(longlink);
+        }
+        entry.setMagic(getStringValue(blockarray, MAGIC_OFFSET, GNU_MAGIC_LENGTH));
         entry.setUname(getStringValue(blockarray, UNAME_OFFSET, UNAME_LENGTH));
         entry.setGname(getStringValue(blockarray, GNAME_OFFSET, GNAME_LENGTH));
         entry.setDevmajor(getNumericValue(blockarray, DEVMAJOR_OFFSET, DEVMAJOR_LENGTH));

@@ -15,6 +15,28 @@
  */
 
 /**
+ * <p>
+ * Provides classes for reading and writing the standard TAR file format. This
+ * package is meant to be as analogous as possible to the {@code java.util.zip}
+ * package, with the differences being due to the nature of the TAR format.
+ * </p>
+ * <h2>Major differences</h2>
+ * <ul>
+ * <li>
+ * The absence of a {@code TarFile} class - TAR files are designed to be read and
+ * processed like a stream, and therefore have nothing akin to a table of contents
+ * that a ZIP file has. A {@code TarFile} class would then act as a strange and
+ * highly inefficient wrapper around a {@code TarInputStream} instance. Also,
+ * since TAR files are usually themselves compressed, a {@code TarFile} class
+ * would have to guess based on file name as to what kind of decompression to
+ * apply to the file before it could be read.
+ * </li>
+ * <li>
+ * No relation to {@code InflatorInputStream} or {@code DeflatorOutputStream} - 
+ * The TAR file format does not support internal compression the same way ZIP
+ * files do. The files are compressed after they are formed. It is viable.
+ * </li>
+ * </ul>
  * @author Jonathan Paz jonathan.paz@pazdev.com
  */
 package com.pazdev.jtar;

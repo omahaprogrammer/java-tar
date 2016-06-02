@@ -240,6 +240,15 @@ public class TarEntry {
         return uid;
     }
 
+    /**
+     * Sets the User ID owning the file described by this {@code TarEntry}. While, 
+     * theoretically, a POSIX TAR file can support any arbitrary-length integer
+     * number as a User ID, that would imply that more than two million users
+     * are on a single system, and that is likely unsupportable on an operating
+     * system anyway.
+     * 
+     * @param uid the User ID owining the file
+     */
     public void setUid(Integer uid) {
         this.uid = uid;
     }
@@ -248,6 +257,15 @@ public class TarEntry {
         return gid;
     }
 
+    /**
+     * Sets the Group ID of the file described by this {@code TarEntry}. While, 
+     * theoretically, a POSIX TAR file can support any arbitrary-length integer
+     * number as a Group ID, that would imply that more than two million groups
+     * are on a single system, and that is likely unsupportable on an operating
+     * system anyway.
+     * 
+     * @param gid the Group ID of the file
+     */
     public void setGid(Integer gid) {
         this.gid = gid;
     }
@@ -256,7 +274,20 @@ public class TarEntry {
         return size;
     }
 
+    /**
+     * Sets the size of the file described by this {@code TarEntry}. While,
+     * theoretically, a POSIX TAR entry can support any arbitrarily large
+     * non-negative integer file size, this class will only support {@code long}
+     * values as no filesystem today, or in the forseeable future, can support
+     * files larger than nine exabytes.
+     * 
+     * @param size the size of the file
+     * @throws IllegalArgumentException if <pre>size &lt; 0</pre>
+     */
     public void setSize(Long size) {
+        if (size < 0) {
+            throw new IllegalArgumentException("Cannot support negative size");
+        }
         this.size = size;
     }
 
@@ -264,6 +295,10 @@ public class TarEntry {
         return mtime;
     }
 
+    /**
+     * 
+     * @param mtime 
+     */
     public void setMtime(FileTime mtime) {
         this.mtime = mtime;
     }
