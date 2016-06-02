@@ -447,4 +447,32 @@ public class TarEntry {
             this.ctime = FileTime.from(stringToInstant(ctime));
         }
     }
+
+    public boolean isRegularFile() {
+        return typeflag == REGTYPE || typeflag == AREGTYPE || typeflag == CONTTYPE;
+    }
+
+    public boolean isHardLink() {
+        return typeflag == LNKTYPE;
+    }
+
+    public boolean isSymbolicLink() {
+        return typeflag == SYMTYPE;
+    }
+
+    public boolean isCharacterSpecial() {
+        return typeflag == CHRTYPE;
+    }
+
+    public boolean isBlockSpecial() {
+        return typeflag == BLKTYPE;
+    }
+
+    public boolean isDirectory() {
+        return typeflag == DIRTYPE; 
+    }
+
+    public boolean isFifo() {
+        return typeflag == FIFOTYPE;
+    }
 }

@@ -108,21 +108,21 @@ public class TarInputStream extends BufferedInputStream {
     private static final Pattern PARAM_PATTERN = compile("(\\d*) ([^=]*)=(.*)\n", DOTALL | UNIX_LINES);
 
     /**
-     * Creates a new TAR input stream. The blocksize is defaulted to 10240 as
-     * specified in the Posix standard.
+     * Creates a new TAR input stream. The block size is defaulted to 10240 as
+     * specified in the POSIX standard.
      * 
      * @param in The actual input stream
      */
     public TarInputStream(InputStream in) {
-        super(in);
+        this(in, 10240);
     }
 
     /**
      * Creates a new TAR input stream.
      * 
      * @param in The actual input stream
-     * @param blocksize The blocksize in bytes to use to read from the stream
-     * @throws IllegalArgumentException If the blocksize is greater than 32256 or
+     * @param blocksize The block size in bytes to use to read from the stream
+     * @throws IllegalArgumentException If the block size is greater than 32256 or
      * is not a multiple of 512
      */
     public TarInputStream(InputStream in, int blocksize) {
