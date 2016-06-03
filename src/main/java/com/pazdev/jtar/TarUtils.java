@@ -29,6 +29,8 @@ import java.nio.charset.MalformedInputException;
 import java.nio.charset.StandardCharsets;
 import java.nio.charset.UnmappableCharacterException;
 import java.nio.charset.UnsupportedCharsetException;
+import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 
 /**
  *
@@ -126,6 +128,31 @@ class TarUtils {
         return retval;
 	}
 	
+    public static void setGnuNumericValue(long value, byte[] block, int offset, int length) {
+        ByteBuffer buf = ByteBuffer.wrap(block, offset, length);
+        if (value < 0) {
+            byte[] byteversion = BigInteger.valueOf(value).toByteArray();
+            while (length > byteversion.length) {
+                buf.put((byte)0xff);
+                --length;
+            }
+            buf.put(byteversion);
+        } else {
+            String val = Long.toOctalString(value);
+            if (val.length() + 1 <= length) {
+                setNumericValue(value, block, offset, length);
+            } else {
+                byte[] byteversion = BigInteger.valueOf(value).toByteArray();
+                buf.put((byte)0b1000_0000);
+                --length;
+                while (length > byteversion.length) {
+                    buf.put((byte)0);
+                    --length;
+                }
+                buf.put(byteversion);
+            }
+        }
+    }
 	public static void setNumericValue(long value, byte[] block, int offset, int length) {
 		if (value < 0) {
 			throw new IllegalArgumentException("Negative values are not allowed in TAR headers");
@@ -249,6 +276,11 @@ class TarUtils {
         len += lenchrct;
         builder.insert(0, len);
         return builder.toString();
+    }
+
+    public static String getTimestamp(FileTime t) {
+        Instant i = t.toInstant();
+        return String.format("%d.%09d", i.getEpochSecond(), i.getNano());
     }
 
 	private TarUtils() {

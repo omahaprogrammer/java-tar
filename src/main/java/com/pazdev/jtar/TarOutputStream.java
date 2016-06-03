@@ -19,8 +19,11 @@ import static com.pazdev.jtar.TarConstants.*;
 import static com.pazdev.jtar.TarUtils.*;
 
 import java.io.BufferedOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
@@ -370,6 +373,94 @@ public class TarOutputStream extends BufferedOutputStream {
     }
 
     private void writeGNU() throws IOException {
+        String[] split = splitName();
+        boolean bigname = split == null;
+        boolean biglink = entry.getLinkname().length() > 100;
+        byte[] tarheader = new byte[512];
+        if (bigname) {
+            byte[] headerdata = entry.getName().getBytes(StandardCharsets.UTF_8);
+            int len = headerdata.length;
+            int blocks = (len + 511) / 512;
+            byte[] headerblocks = new byte[blocks * 512];
+            System.arraycopy(headerdata, 0, headerblocks, 0, len);
+            File f = new File(entry.getName());
+            File d = f.getParentFile();
+            String name = f.getName();
+            // long pid = ProcessHandle.current().getPid();
+            long pid = 0;
+            String tmpfile = String.format("././@Longlink/%s", name).substring(0, 100);
+            setStringValue(tmpfile, tarheader, NAME_OFFSET, NAME_LENGTH, false);
+            setNumericValue(0444, tarheader, MODE_OFFSET, MODE_LENGTH);
+            setNumericValue(0, tarheader, UID_OFFSET, UID_LENGTH);
+            setNumericValue(0, tarheader, GID_OFFSET, GID_LENGTH);
+            setNumericValue(len, tarheader, SIZE_OFFSET, SIZE_LENGTH);
+            setNumericValue(System.currentTimeMillis() / 1000, tarheader, MTIME_OFFSET, MTIME_LENGTH);
+            tarheader[TYPEFLAG_OFFSET] = (byte) 'L';
+            setStringValue("ustar  ", tarheader, MAGIC_OFFSET, GNU_MAGIC_LENGTH, true);
+            setStringValue("root", tarheader, UNAME_OFFSET, UNAME_LENGTH, true);
+            setStringValue("root", tarheader, GNAME_OFFSET, GNAME_LENGTH, true);
+            setNumericValue(0, tarheader, DEVMAJOR_OFFSET, DEVMAJOR_LENGTH);
+            setNumericValue(0, tarheader, DEVMINOR_OFFSET, DEVMINOR_LENGTH);
+            setChksum(tarheader);
+            super.write(tarheader);
+            super.write(headerdata);
+        }
+        if (biglink) {
+            byte[] headerdata = entry.getLinkname().getBytes(StandardCharsets.UTF_8);
+            int len = headerdata.length;
+            int blocks = (len + 511) / 512;
+            byte[] headerblocks = new byte[blocks * 512];
+            System.arraycopy(headerdata, 0, headerblocks, 0, len);
+            File f = new File(entry.getLinkname());
+            File d = f.getParentFile();
+            String name = f.getName();
+            // long pid = ProcessHandle.current().getPid();
+            long pid = 0;
+            String tmpfile = String.format("././@Longlink/%s", name).substring(0, 100);
+            setStringValue(tmpfile, tarheader, NAME_OFFSET, NAME_LENGTH, false);
+            setNumericValue(0444, tarheader, MODE_OFFSET, MODE_LENGTH);
+            setNumericValue(0, tarheader, UID_OFFSET, UID_LENGTH);
+            setNumericValue(0, tarheader, GID_OFFSET, GID_LENGTH);
+            setNumericValue(len, tarheader, SIZE_OFFSET, SIZE_LENGTH);
+            setNumericValue(System.currentTimeMillis() / 1000, tarheader, MTIME_OFFSET, MTIME_LENGTH);
+            tarheader[TYPEFLAG_OFFSET] = (byte) 'K';
+            setStringValue("ustar  ", tarheader, MAGIC_OFFSET, GNU_MAGIC_LENGTH, true);
+            setStringValue("root", tarheader, UNAME_OFFSET, UNAME_LENGTH, true);
+            setStringValue("root", tarheader, GNAME_OFFSET, GNAME_LENGTH, true);
+            setNumericValue(0, tarheader, DEVMAJOR_OFFSET, DEVMAJOR_LENGTH);
+            setNumericValue(0, tarheader, DEVMINOR_OFFSET, DEVMINOR_LENGTH);
+            setChksum(tarheader);
+            super.write(tarheader);
+            super.write(headerdata);
+        }
+        Arrays.fill(tarheader, (byte)0);
+        if (bigname) {
+            setStringValue(entry.getName().substring(0,100), tarheader, NAME_OFFSET, NAME_LENGTH, false);
+        } else {
+            String[] names = splitName();
+            setStringValue(names[0], tarheader, NAME_OFFSET, NAME_LENGTH, false);
+            if (names.length > 1) {
+                setStringValue(names[1], tarheader, NAME_OFFSET, NAME_LENGTH, false);
+            }
+        }
+        setNumericValue(entry.getMode(), tarheader, MODE_OFFSET, MODE_LENGTH);
+        setGnuNumericValue(entry.getUid(), tarheader, UID_OFFSET, UID_LENGTH);
+        setGnuNumericValue(entry.getGid(), tarheader, GID_OFFSET, GID_LENGTH);
+        setGnuNumericValue(entry.getSize(), tarheader, SIZE_OFFSET, SIZE_LENGTH);
+        setGnuNumericValue(entry.getMtime().to(TimeUnit.SECONDS), tarheader, MTIME_OFFSET, MTIME_LENGTH);
+        tarheader[TYPEFLAG_OFFSET] = (byte) entry.getTypeflag();
+        if (biglink) {
+            setStringValue(entry.getLinkname().substring(0, 100), tarheader, LINKNAME_OFFSET, LINKNAME_LENGTH, false);
+        } else {
+            setStringValue(entry.getLinkname(), tarheader, LINKNAME_OFFSET, LINKNAME_LENGTH, false);
+        }
+        setStringValue(entry.getMagic(), tarheader, MAGIC_OFFSET, GNU_MAGIC_LENGTH, true);
+        setStringValue(entry.getUname(), tarheader, UNAME_OFFSET, UNAME_LENGTH, false);
+        setStringValue(entry.getGname(), tarheader, GNAME_OFFSET, GNAME_LENGTH, false);
+        setGnuNumericValue(entry.getDevmajor(), tarheader, DEVMAJOR_OFFSET, DEVMAJOR_LENGTH);
+        setGnuNumericValue(entry.getDevminor(), tarheader, DEVMINOR_OFFSET, DEVMINOR_LENGTH);
+        setChksum(tarheader);
+        super.write(tarheader);
     }
 
     private void writePAX() throws IOException {
@@ -389,7 +480,148 @@ public class TarOutputStream extends BufferedOutputStream {
         boolean hasextra = entry.getExtraHeaders() != null && !entry.getExtraHeaders().isEmpty();
         boolean doextra = bigname || biguid || biggid || bigsize || bigmtime || biglink || biguser || biggroup || hasatime || hasctime || hascharset || hascomment || hasextra;
         if (doextra) {
-
+            StringBuilder header = new StringBuilder();
+            if (bigname) {
+                header.append(makeRecord("path", entry.getName()));
+            }
+            if (biguid) {
+                header.append(makeRecord("uid", entry.getUid().toString()));
+            }
+            if (biggid) {
+                header.append(makeRecord("gid", entry.getGid().toString()));
+            }
+            if (bigsize) {
+                header.append(makeRecord("size", entry.getSize().toString()));
+            }
+            if (bigmtime) {
+                header.append(makeRecord("mtime", getTimestamp(entry.getMtime())));
+            }
+            if (hasatime) {
+                header.append(makeRecord("atime", getTimestamp(entry.getAtime())));
+            }
+            if (hasctime) {
+                header.append(makeRecord("ctime", getTimestamp(entry.getCtime())));
+            }
+            if (biglink) {
+                header.append(makeRecord("linkpath", entry.getLinkname()));
+            }
+            if (biguser) {
+                header.append(makeRecord("uname", entry.getUname()));
+            }
+            if (biggroup) {
+                header.append(makeRecord("gname", entry.getGname()));
+            }
+            if (hascharset) {
+                header.append(makeRecord("charset", stringFromCharset(entry.getCharset())));
+            }
+            if (hascomment) {
+                header.append(makeRecord("comment", entry.getComment()));
+            }
+            if (hasextra) {
+                entry.getExtraHeaders().forEach((k, v) -> {
+                    switch (k) {
+                        case "atime":
+                        case "charset":
+                        case "comment":
+                        case "ctime":
+                        case "gid":
+                        case "gname":
+                        case "hdrcharset":
+                        case "linkpath":
+                        case "mtime":
+                        case "path":
+                        case "size":
+                        case "uid":
+                        case "uname":
+                            // do not save
+                            break;
+                        default:
+                            header.append(makeRecord(k, v));
+                            break;
+                    }
+                });
+            }
+            byte[] headerdata = header.toString().getBytes(StandardCharsets.UTF_8);
+            int len = headerdata.length;
+            int blocks = (len + 511) / 512;
+            byte[] headerblocks = new byte[blocks * 512];
+            System.arraycopy(headerdata, 0, headerblocks, 0, len);
+            byte[] tarheader = new byte[512];
+            File f = new File(entry.getName());
+            File d = f.getParentFile();
+            String name = f.getName();
+            // long pid = ProcessHandle.current().getPid();
+            long pid = 0;
+            String tmpfile = String.format("%s/PaxHeaders.%d/%s", f.toString(), pid, name).substring(0, 100);
+            setStringValue(tmpfile, tarheader, NAME_OFFSET, NAME_LENGTH, false);
+            setNumericValue(0444, tarheader, MODE_OFFSET, MODE_LENGTH);
+            setNumericValue(0, tarheader, UID_OFFSET, UID_LENGTH);
+            setNumericValue(0, tarheader, GID_OFFSET, GID_LENGTH);
+            setNumericValue(len, tarheader, SIZE_OFFSET, SIZE_LENGTH);
+            setNumericValue(System.currentTimeMillis() / 1000, tarheader, MTIME_OFFSET, MTIME_LENGTH);
+            tarheader[TYPEFLAG_OFFSET] = (byte) 'x';
+            setStringValue("ustar", tarheader, MAGIC_OFFSET, MAGIC_LENGTH, true);
+            setStringValue("00", tarheader, VERSION_OFFSET, VERSION_LENGTH, false);
+            setStringValue("root", tarheader, UNAME_OFFSET, UNAME_LENGTH, true);
+            setStringValue("root", tarheader, GNAME_OFFSET, GNAME_LENGTH, true);
+            setNumericValue(0, tarheader, DEVMAJOR_OFFSET, DEVMAJOR_LENGTH);
+            setNumericValue(0, tarheader, DEVMINOR_OFFSET, DEVMINOR_LENGTH);
+            setChksum(tarheader);
+            super.write(tarheader);
+            super.write(headerdata);
+            Arrays.fill(tarheader, (byte)0);
+            if (bigname) {
+                setStringValue(entry.getName().substring(0,100), tarheader, NAME_OFFSET, NAME_LENGTH, false);
+            } else {
+                String[] names = splitName();
+                setStringValue(names[0], tarheader, NAME_OFFSET, NAME_LENGTH, false);
+                if (names.length > 1) {
+                    setStringValue(names[1], tarheader, NAME_OFFSET, NAME_LENGTH, false);
+                }
+            }
+            setNumericValue(entry.getMode(), tarheader, MODE_OFFSET, MODE_LENGTH);
+            if (biguid) {
+                setNumericValue(07777777, tarheader, UID_OFFSET, UID_LENGTH);
+            } else {
+                setNumericValue(entry.getUid(), tarheader, UID_OFFSET, UID_LENGTH);
+            }
+            if (biggid) {
+                setNumericValue(07777777, tarheader, GID_OFFSET, GID_LENGTH);
+            } else {
+                setNumericValue(entry.getGid(), tarheader, GID_OFFSET, GID_LENGTH);
+            }
+            if (bigsize) {
+                setNumericValue(077777777777l, tarheader, SIZE_OFFSET, SIZE_LENGTH);
+            } else {
+                setNumericValue(entry.getSize(), tarheader, SIZE_OFFSET, SIZE_LENGTH);
+            }
+            if (bigmtime) {
+                setNumericValue(077777777777l, tarheader, MTIME_OFFSET, MTIME_LENGTH);
+            } else {
+                setNumericValue(entry.getMtime().to(TimeUnit.SECONDS), tarheader, MTIME_OFFSET, MTIME_LENGTH);
+            }
+            tarheader[TYPEFLAG_OFFSET] = (byte) entry.getTypeflag();
+            if (biglink) {
+                setStringValue(entry.getLinkname().substring(0, 100), tarheader, LINKNAME_OFFSET, LINKNAME_LENGTH, false);
+            } else {
+                setStringValue(entry.getLinkname(), tarheader, LINKNAME_OFFSET, LINKNAME_LENGTH, false);
+            }
+            setStringValue(entry.getMagic(), tarheader, MAGIC_OFFSET, MAGIC_LENGTH, true);
+            setStringValue(entry.getVersion(), tarheader, VERSION_OFFSET, VERSION_LENGTH, true);
+            if (biguser) {
+                setStringValue(entry.getUname().substring(0, 32), tarheader, UNAME_OFFSET, UNAME_LENGTH, false);
+            } else {
+                setStringValue(entry.getUname(), tarheader, UNAME_OFFSET, UNAME_LENGTH, false);
+            }
+            if (biggroup) {
+                setStringValue(entry.getGname().substring(0, 32), tarheader, GNAME_OFFSET, GNAME_LENGTH, false);
+            } else {
+                setStringValue(entry.getGname(), tarheader, GNAME_OFFSET, GNAME_LENGTH, false);
+            }
+            setNumericValue(entry.getDevmajor(), tarheader, DEVMAJOR_OFFSET, DEVMAJOR_LENGTH);
+            setNumericValue(entry.getDevminor(), tarheader, DEVMINOR_OFFSET, DEVMINOR_LENGTH);
+            setChksum(tarheader);
+            super.write(tarheader);
         } else {
             writeUSTAR();
         }

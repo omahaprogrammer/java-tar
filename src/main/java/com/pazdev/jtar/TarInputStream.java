@@ -345,12 +345,16 @@ public class TarInputStream extends BufferedInputStream {
         TarEntry extendedHeader = null;
         switch (typeflag) {
             case XGLTYPE:
-                globalEntry = tarEntryFromExtendedHeader();
+                TarEntry tmp = tarEntryFromExtendedHeader();
+                if (globalEntry != null) {
+                    globalEntry = globalEntry.mergeEntry(tmp);
+                }
                 readblock();
                 processEntry(); // This wasn't a normal header, so I need to start over with the processing
                 return; // no more processing
             case XHDTYPE:
                 extendedHeader = tarEntryFromExtendedHeader();
+                extendedHeader.applyEntry(globalEntry);
                 readblock();
                 break;
                 
@@ -359,9 +363,6 @@ public class TarInputStream extends BufferedInputStream {
         entry.setFormat(TarFormat.PAX);
         if (extendedHeader != null) {
             entry.mergeEntry(extendedHeader);
-        }
-        if (globalEntry != null) {
-            entry.mergeEntry(globalEntry);
         }
     }
 

@@ -115,6 +115,66 @@ public class TarEntry {
     }
 
     /**
+     * Apply the properties of the given TarEntry object onto the blank properties
+     * of this object. The attributes of the given entry will not override the
+     * attribute for this object, as opposed to the {@code mergeEntry} method.
+     * 
+     * @param e the entry
+     * @return the merged TAR entry
+     */
+    TarEntry applyEntry(TarEntry e) {
+        if (e == null) {
+            return this;
+        }
+        if (e.name != null && this.name == null) {
+            this.name = e.name;
+        }
+        if (e.mode != null && this.mode == null) {
+            this.mode = e.mode;
+        }
+        if (e.uid != null && this.uid == null) {
+            this.uid = e.uid;
+        }
+        if (e.gid != null && this.gid == null) {
+            this.gid = e.gid;
+        }
+        if (e.size != null && this.size == null) {
+            this.size = e.size;
+        }
+        if (e.mtime != null && this.mtime == null) {
+            this.mtime = e.mtime;
+        }
+        if (e.atime != null && this.atime == null) {
+            this.atime = e.atime;
+        }
+        if (e.linkname != null && this.linkname == null) {
+            this.linkname = e.linkname;
+        }
+        if (e.uname != null && this.uname == null) {
+            this.uname = e.uname;
+        }
+        if (e.gname != null && this.gname == null) {
+            this.gname = e.gname;
+        }
+        if (e.devmajor != null && this.devmajor == null) {
+            this.devmajor = e.devmajor;
+        }
+        if (e.devminor != null && this.devminor == null) {
+            this.devminor = e.devminor;
+        }
+        if (e.charset != null && this.charset == null) {
+            this.charset = e.charset;
+        }
+        if (e.comment != null && this.comment == null) {
+            this.comment = e.comment;
+        }
+        if (e.extraHeaders != null) {
+            e.extraHeaders.forEach(this.extraHeaders::putIfAbsent);
+        }
+        return this;
+    }
+
+    /**
      * Merge the given TarEntry object into this object. The attributes of the
      * given entry will override the attribute for this object.
      * @param e the entry
