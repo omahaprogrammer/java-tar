@@ -13,9 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.pazdev.jtar;
+package com.pazdev.tar;
 
-import static com.pazdev.jtar.TarConstants.*;
+import static com.pazdev.tar.TarConstants.*;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;

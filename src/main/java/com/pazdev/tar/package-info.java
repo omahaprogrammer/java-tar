@@ -57,4 +57,4 @@
  * </ul>
  * @author Jonathan Paz jonathan.paz@pazdev.com
  */
-package com.pazdev.jtar;
+package com.pazdev.tar;
