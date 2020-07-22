@@ -15,97 +15,55 @@
  */
 package com.pazdev.tar;
 
-import static java.util.regex.Pattern.*;
-import static com.pazdev.tar.TarUtils.*;
 import static com.pazdev.tar.TarConstants.*;
+import static java.util.regex.Pattern.*;
 
-import java.io.BufferedInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.ByteBuffer;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.attribute.FileTime;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.ZipInputStream;
 
 /**
  * <p>
- * This class implements an input stream for reading files in the TAR file format.
- * Includes support for old (V7), USTAR, Posix, and GNU TAR formats. As is appropriate
- * for a TAR implementation, this class is designed to read blocks.
+ *     This class implements an input stream for reading files in the TAR file format.
+ *     Includes support for old (V7), USTAR, Posix, GNU, and Schily TAR formats. As is appropriate
+ *     for a TAR implementation, this class is designed to read blocks.
  * </p>
  * <p>
- * This class has no support for decompressing a TAR file. It is intended that the
- * TAR file would be decompressed first. An example of this situation would be
- * <pre>new TarInputStream(new GZIPInputStream(new FileInputStream("foo.tar.gz")));</pre>
+ *     This class has no support for decompressing a TAR file. It is intended that the
+ *     TAR file would be decompressed first. An example of this situation would be
+ *     <pre>new TarInputStream(new GZIPInputStream(new FileInputStream("foo.tar.gz")));</pre>
  * </p>
  * <p>
- * This class is intended to be analogous in functionality to {@link java.util.zip.ZipInputStream}
- * as much as feasible.
+ *     GNU TAR archives support sparse headers (including apparently supporting a variant Schily header with sparse
+ *     headers). This implementation fills in sparse holes with zeroes so they are transparent to the user. Old GNU
+ *     format and PAX format versions 0.1 and 1.0 are supported. PAX format 0.0 is not supported.
+ * </p>
+ * <p>
+ *     This class is intended to be analogous in functionality to {@link java.util.zip.ZipInputStream}
+ *     as much as feasible.
  * </p>
  * 
  * @author Jonathan Paz jonathan.paz@pazdev.com
  */
 public class TarInputStream extends BufferedInputStream {
-    /**
-     * The length of the current entry.
-     */
-    protected long entrylen;
-
-    /**
-     * The current position of the current entry.
-     */
-    protected long entrypos;
-
-    /**
-     * The current entry being read.
-     */
-    protected TarEntry entry;
-
-    /**
-     * The closed status of this stream.
-     */
+    private TarEntry entry;
+    private final Map<String, String> globalHeader = new HashMap<>();
     private boolean closed;
-
-    /**
-     * The array representing the current block.
-     */
-    private final byte[] blockarray = new byte[512];
-
-    /**
-     * The byte buffer wrapping the block array. This helps the stream read data
-     * from the block.
-     */
-    private final ByteBuffer block = ByteBuffer.wrap(blockarray);
-
-    /**
-     * Whether the end of the file has been reached (two zero-blocks).
-     */
-    private boolean eof = false;
-
-    /**
-     * Whether the end of the entry has been reached.
-     */
-    private boolean entryeof = false;
-
-    /**
-     * A temporary buffer useful for putting in data for reads while doing non-reading
-     * things.
-     */
-    private final byte[] tmpbuf = new byte[512];
-
-    /**
-     * The global entry if it has been found.
-     */
-    private TarEntry globalEntry;
+    private final byte[] tmpbuf = new byte[BLOCKSIZE];
+    private boolean entryEOF;
+    private boolean archiveEOF;
+    private long offset;
+    private long remainingData;
+    private long remainingRecord;
+    private Deque<SparseHole> sparseHoles;
 
     /**
      * The regex pattern to help read an extended header record.
      */
-    private static final Pattern PARAM_PATTERN = compile("(\\d*) ([^=]*)=(.*)\n", DOTALL | UNIX_LINES);
+    private static final Pattern PARAM_PATTERN = compile("(\\d*) ([^=]*)=(.*)\n", DOTALL);
 
     /**
      * Creates a new TAR input stream. The block size is defaulted to 10240 as
@@ -121,463 +79,420 @@ public class TarInputStream extends BufferedInputStream {
      * Creates a new TAR input stream.
      * 
      * @param in The actual input stream
-     * @param blocksize The block size in bytes to use to read from the stream
+     * @param bufferSize The block size in bytes to use to read from the stream
      * @throws IllegalArgumentException If the block size is greater than 32256 or
      * is not a multiple of 512
      */
-    public TarInputStream(InputStream in, int blocksize) {
-        super(in, blocksize);
-        if (blocksize > 32256) {
-            throw new IllegalArgumentException("blocksize cannot be larger than 32256");
+    public TarInputStream(InputStream in, int bufferSize) {
+        super(in, bufferSize);
+        if (bufferSize > 32256) {
+            throw new IllegalArgumentException("buffer size cannot be larger than 32256");
         }
-        if ((blocksize % 512) != 0) {
-            throw new IllegalArgumentException("blocksize must be a multiple of 512");
+        if ((bufferSize % 512) != 0) {
+            throw new IllegalArgumentException("buffer size must be a multiple of 512");
         }
     }
 
-    /**
-     * Reads the next TAR file entry and positions the stream at the beginning
-     * of the entry data.
-     * 
-     * @return the next TAR entry or {@code null} if there are no more entries
-     * @throws TarException if a TAR file exception occurred 
-     * @throws IOException if an I/O error occurred
-     */
-    public TarEntry getNextEntry() throws IOException {
+    public synchronized TarEntry getNextEntry() throws IOException {
         ensureOpen();
-        if (eof) {
+        if (archiveEOF) {
             return null;
         }
         if (entry != null) {
             closeEntry();
         }
-        readblock();
-        if (isZeroBlock()) {
-            readblock();
-            if (isZeroBlock()) {
-                eof = true;
-                return null;
-            }
+        entry = readEntry();
+        if (entry == null) {
+            return null;
         }
-        processEntry();
+        long size = entry.getSize();
+        long records = (size + 511) / 512;
+        switch (entry.getTypeflag()) {
+            case TarConstants.LNKTYPE:
+            case TarConstants.SYMTYPE:
+            case TarConstants.DIRTYPE:
+            case TarConstants.CHRTYPE:
+            case TarConstants.BLKTYPE:
+            case TarConstants.SCHILY_INODE:
+                offset = 0;
+                remainingData = 0;
+                remainingRecord = 0;
+                entryEOF = true;
+                break;
+            default:
+                offset = 0;
+                remainingData = size;
+                remainingRecord = records * 512;
+                entryEOF = false;
+                break;
+        }
         return entry;
     }
 
-    /**
-     * Checks to see if the currently read block contains only zeroes.
-     * 
-     * @return true if the block is blank.
-     */
-    private boolean isZeroBlock() {
-        boolean zeroblock = true;
-        while (block.hasRemaining()) {
-            if (block.get() != 0) {
-                zeroblock = false;
-                break;
-            }
+    public synchronized void closeEntry() throws IOException {
+        super.markpos = -1;
+        while (remainingData > 0) {
+            skip(remainingData);
         }
-        return zeroblock;
-    }
-
-    /**
-     * Closes the current TAR entry and positions the stream for reading the
-     * next entry.
-     * 
-     * @throws TarException if a TAR file exception occurred 
-     * @throws IOException if an I/O error occurred
-     */
-    public void closeEntry() throws IOException {
-        ensureOpen();
-        while (read(tmpbuf, 0, tmpbuf.length) != -1) {
-            // keep reading
+        while (remainingRecord > 0) {
+            long ct = super.skip(remainingRecord);
+            remainingRecord -= ct;
         }
         entry = null;
     }
 
-    /**
-     * Returns an estimate of the number of bytes that can be read (or skipped
-     * over) in the current TAR entry without blocking by the next invocation
-     * of a method for this input stream. This method will return 0 if there are
-     * no more remaining bytes in this entry.
-     * 
-     * @return an estimate of the number of bytes that can be read (or skipped
-     * over) without blocking.
-     * @throws IOException  if an I/O error occurs
-     */
     @Override
-    public int available() throws IOException {
-        ensureOpen();
-        int len = (int) Math.min(entrylen - entrypos, (long)Integer.MAX_VALUE);
-        int ct = block.remaining();
-        return Math.min(len, ct);
-    }
-
-    /**
-     * <p>
-     * Reads from the current TAR entry into an array of bytes. An attempt is made
-     * to read as many as {@code len} bytes, but a smaller number may be read. The
-     * actual number of bytes read is returned. If there are no many bytes to read
-     * in the current entry, the method will return -1.
-     * </p>
-     * 
-     * <p>
-     * If len is not zero, the method blocks until some input is available;
-     * otherwise, no bytes are read and 0 is returned.
-     * </p>
-     * 
-     * @param b the buffer into which the data will be read
-     * @param off the start offset in destination {@code b}
-     * @param len the maximum number of bytes to read
-     * @return The actual number of bytes read, or -1 if at the end of the entry
-     * @throws NullPointerException if {@code b} is null
-     * @throws IndexOutOfBoundsException if either {@code off} or {@code len} is
-     * negative or if {@code len} is greater than {@code b.length - off}
-     * @throws TarException if a TAR exception occurred.
-     * @throws IOException if an I/O error occurred.
-     */
-    @Override
-    public int read(byte[] b, int off, int len) throws IOException {
-        ensureOpen();
-        if (!block.hasRemaining() && !readblock()) {
-            return -1;
+    public synchronized long skip(long n) throws IOException {
+        if (entryEOF) {
+            return 0;
         }
-        len = Math.min(len, block.remaining());
-        block.get(b, off, len);
-        return len;
-    }
-
-    /**
-     * Skips the given number of bytes in the current TAR entry.
-     * 
-     * @param n the maximum number of bytes to skip in the current entry
-     * @return the actual number of bytes skipped.
-     * @throws IllegalArgumentException if {@code n} is negative
-     * @throws IOException if an I/O error occurred
-     */
-    @Override
-    public long skip(long n) throws IOException {
-        ensureOpen();
-        long ct = 0;
-        while (n > 0) {
-            int num = read(tmpbuf, 0, (int) Math.min(n, tmpbuf.length));
-            if (num == -1) {
-                return ct;
-            }
-            ct += num;
-            n -= num;
+        n = Long.min(n, remainingData);
+        long ct = super.skip(n);
+        remainingData -= ct;
+        remainingRecord -= ct;
+        if (remainingData == 0) {
+            entryEOF = true;
         }
         return ct;
     }
 
-    /**
-     * Closes this and the underlying input stream.
-     * @throws IOException if an I/O error occured.
-     */
     @Override
-    public void close() throws IOException {
+    public synchronized int available() throws IOException {
+        ensureOpen();
+        int remaining = (int) Long.min(Integer.MAX_VALUE, remainingData);
+        return Integer.min(super.available(), remaining);
+    }
+
+    @Override
+    public synchronized int read() throws IOException {
+        ensureOpen();
+        if (!sparseHoles.isEmpty() && sparseHoles.peek().offset == offset) {
+            --sparseHoles.peek().size;
+            return 0;
+        } else if (remainingData > 0) {
+            int b = super.read();
+            ++offset;
+            --remainingData;
+            --remainingRecord;
+            return b;
+        } else {
+            return -1;
+        }
+    }
+
+    @Override
+    public synchronized int read(byte[] b, int off, int len) throws IOException {
+        ensureOpen();
+        if (remainingData > 0) {
+            int remaining = (int) Long.min(remainingData, Integer.MAX_VALUE);
+            len = Integer.min(len, remaining);
+            int ct = super.read(b, off, len);
+            remainingData -= ct;
+            remainingRecord -= ct;
+            return ct;
+        } else {
+            return -1;
+        }
+    }
+
+    @Override
+    public synchronized void reset() throws IOException {
+        ensureOpen();
+        if (super.markpos > 0) {
+            int rewoundCount = super.pos - super.markpos;
+            super.reset();
+            remainingData += rewoundCount;
+            remainingRecord += rewoundCount;
+        }
+    }
+
+    @Override
+    public synchronized void close() throws IOException {
         if (!closed) {
-            closed = true;
             super.close();
+            closed = true;
         }
     }
 
-    /**
-     * Called at the start of every method that performs a read or read-like
-     * operation to check if the file is closed.
-     * 
-     * @throws IOException if the file is closed
-     */
-    private void ensureOpen() throws IOException {
+    private synchronized void ensureOpen() throws IOException {
         if (closed) {
-            throw new IOException("The stream is closed");
+            throw new IOException("Stream is closed");
         }
     }
 
-    /**
-     * Processes the new entry (starting at the current block) into a new TarEntry
-     * object. This method will move the input stream to the start of the file
-     * data if present.
-     * 
-     * @throws TarException if the entry information is malformed.
-     * @throws IOException if an I/O error occurred
-     */
-    private void processEntry() throws TarException, IOException {
-        verifyChecksum(blockarray);
-        String magic = getStringValue(blockarray, MAGIC_OFFSET, GNU_MAGIC_LENGTH);
-        switch (magic) {
-            case "ustar":
-                if ("00".equals(getStringValue(blockarray, VERSION_OFFSET, VERSION_LENGTH))) {
-                    processPosix();
+    private synchronized TarEntry readEntry() throws IOException {
+        try {
+            fill(tmpbuf, 0, BLOCKSIZE);
+            if (isBlockZeroFilled(tmpbuf, 0, BLOCKSIZE)) {
+                fill(tmpbuf, 0, BLOCKSIZE);
+                if (isBlockZeroFilled(tmpbuf, 0, BLOCKSIZE)) {
+                    archiveEOF = true;
+                    return null;
                 }
-                break;
-            case "ustar  ":
-                processGnu();
-                break;
-            default:
-                processV7();
-                break;
+            }
+        } catch (EOFException e) {
+            archiveEOF = true;
+            return null;
         }
-        if (entry != null) {
-            entrylen = entry.getSize();
-            entrypos = 0;
-            switch (entry.getTypeflag()) {
-                case SYMTYPE:
-                case DIRTYPE:
-                case CHRTYPE:
-                case BLKTYPE:
-                    entrylen = 0;
-                    break;
+        String magic = TarUtils.getStringValue(tmpbuf, MAGIC_OFFSET, GNU_MAGIC_LENGTH);
+        if (GNU_MAGIC.equals(magic)) {
+            return readGnuEntry();
+        } else if (USTAR_MAGIC.equals(magic)) {
+            String version = TarUtils.getStringValue(tmpbuf, VERSION_OFFSET, VERSION_LENGTH);
+            if (USTAR_VERSION.equals(version)) {
+                if (isSchily(tmpbuf)) {
+                    return readSchilyEntry();
+                } else {
+                    return readUstarEntry();
+                }
+            } else {
+                return readV7Entry();
             }
         } else {
-            entrylen = 0;
-        }
-        entryeof = entrylen <= 0;
-        readblock();
-    }
-
-    /**
-     * Processes the entry as a POSIX (pax) entry. 
-     * @throws TarException if the extended header information is flawed
-     * @throws IOException if an I/O error occurred
-     */
-    private void processPosix() throws TarException, IOException {
-        char typeflag = (char) (0x00ff & blockarray[TYPEFLAG_OFFSET]);
-        TarEntry extendedHeader = null;
-        switch (typeflag) {
-            case XGLTYPE:
-                TarEntry tmp = tarEntryFromExtendedHeader();
-                if (globalEntry != null) {
-                    globalEntry = globalEntry.mergeEntry(tmp);
-                }
-                readblock();
-                processEntry(); // This wasn't a normal header, so I need to start over with the processing
-                return; // no more processing
-            case XHDTYPE:
-                extendedHeader = tarEntryFromExtendedHeader();
-                extendedHeader.applyEntry(globalEntry);
-                readblock();
-                break;
-                
-        }
-        processUstar();
-        entry.setFormat(TarFormat.PAX);
-        if (extendedHeader != null) {
-            entry.mergeEntry(extendedHeader);
+            return readV7Entry();
         }
     }
 
-    /**
-     * Creates a partial TarEntry object based on the information in the extended
-     * header. This TarEntry will be merged into entry created by the proper header
-     * to fill in the information missing from the proper header. This also reads
-     * the global header entry, and this entry will be used to merge into subsequent
-     * POSIX-style entries.
-     * 
-     * @return a partial TarEntry object for merging later.
-     * @throws TarException if the end of the file was hit before the header could be read.
-     * @throws IOException if an I/O error occurred
-     */
-    private TarEntry tarEntryFromExtendedHeader() throws TarException, IOException {
-        TarEntry newEntry = new TarEntry();
-        int size = entry.getSize().intValue(); // the extended header has no business being bigger than 2GB, so this is safe.
-        int blocksToRead = (size + 511) / 512;
-        int bytesToRead = blocksToRead * 512;
-        int offset = 0;
-        byte[] bytes = new byte[bytesToRead];
-        
-        while (bytesToRead > 0) {
-            int ct = super.read(bytes, offset, bytesToRead);
-            if (ct == -1) {
-                throw new TarException("EOF before finished reading header");
-            }
-            offset += ct;
-            bytesToRead -= ct;
+    private TarEntry readSchilyEntry() {
+        return null;
+    }
+
+    private boolean isSchily(byte[] block) {
+        String xmagic = TarUtils.getStringValue(block, SCHILY_XMAGIC_OFFSET, SCHILY_XMAGIC_LENGTH);
+        if (SCHILY_XMAGIC.equals(xmagic)) {
+            return true;
         }
-        ByteBuffer exthdr = ByteBuffer.wrap(bytes);
-        exthdr.limit(bytesToRead);
-        while (exthdr.hasRemaining()) {
-            exthdr.mark();
-            StringBuilder lenstr = new StringBuilder();
-            byte r;
-            while ((r = exthdr.get()) != ' ') {
-                lenstr.append((char) (0x00ff & r));
+        byte atime0 = block[SCHILY_ATIME_OFFSET];
+        byte ctime0 = block[SCHILY_CTIME_OFFSET];
+        return block[PREFIX_OFFSET + 130] == ' '
+                && (atime0 >= '0' && atime0 <= '7')
+                && (ctime0 >= '0' && ctime0 <= '7')
+                && block[SCHILY_ATIME_OFFSET + 11] == ' '
+                && block[SCHILY_CTIME_OFFSET + 11] == ' ';
+    }
+
+    private TarEntry readV7Entry() throws TarException {
+        TarUtils.verifyChecksum(tmpbuf);
+        TarEntry entry = new TarEntry();
+        entry.setName(TarUtils.getStringValue(tmpbuf, NAME_OFFSET, NAME_LENGTH));
+        entry.setMode(TarUtils.getNumericValue(tmpbuf, MODE_OFFSET, MODE_LENGTH));
+        entry.setUid(TarUtils.getNumericValue(tmpbuf, UID_OFFSET, UID_LENGTH));
+        entry.setGid(TarUtils.getNumericValue(tmpbuf, GID_OFFSET, GID_LENGTH));
+        entry.setSize(TarUtils.getLongNumericValue(tmpbuf, SIZE_OFFSET, SIZE_LENGTH));
+        entry.setMtime(TarUtils.getFileTime(tmpbuf, MTIME_OFFSET, MTIME_LENGTH));
+        entry.setChksum(TarUtils.getNumericValue(tmpbuf, CHKSUM_OFFSET, CHKSUM_LENGTH));
+        entry.setTypeflag((char) (0x00ff & tmpbuf[TYPEFLAG_OFFSET]));
+        entry.setLinkname(TarUtils.getStringValue(tmpbuf, LINKNAME_OFFSET, LINKNAME_LENGTH));
+        entry.setFormat(TarFormat.V7);
+        return entry;
+    }
+
+    private TarEntry readUstarEntry() throws IOException {
+        char typeflag = (char) (0x00ff & tmpbuf[TYPEFLAG_OFFSET]);
+        if (typeflag == 'x') {
+            Map<String, String> extended = readPaxData();
+            globalHeader.forEach(extended::putIfAbsent);
+            TarEntry entry = readEntry();
+            if (entry == null) {
+                return null;
             }
-            exthdr.rewind();
-            int len = Integer.parseInt(lenstr.toString());
-            byte[] paramarr = new byte[len];
-            exthdr.get(paramarr);
-            String param = new String(paramarr, StandardCharsets.UTF_8);
-            Matcher m = PARAM_PATTERN.matcher(param);
-            if (m.matches()) {
-                String key = m.group(2);
-                String value = m.group(3);
-                if (value != null && value.isEmpty()) {
-                    value = null;
+            for (Iterator<Map.Entry<String, String>> it = extended.entrySet().iterator(); it.hasNext(); ) {
+                Map.Entry<String, String> e = it.next();
+                String k = e.getKey();
+                String v = e.getValue();
+                if (v == null || v.isEmpty()) {
+                    continue;
                 }
-                switch (key) {
-                    case "atime":
-                        newEntry.setAtime(value);
+                switch (k) {
+                    case PAX_ATIME:
+                        entry.setAtime(TarUtils.getFileTime(v));
+                        it.remove();
                         break;
-                    case "charset":
-                        newEntry.setCharset(charsetFromString(value));
+                    case PAX_CHARSET:
+                        entry.setCharset(TarUtils.charsetFromString(v));
+                        // keep the value in the hashtable in case we can't identify it
                         break;
-                    case "comment":
-                        newEntry.setComment(value);
+                    case PAX_COMMENT:
+                        entry.setComment(v);
+                        it.remove();
                         break;
-                    case "gid":
-                        newEntry.setGid(Integer.parseInt(value));
+                    case PAX_CTIME:
+                        entry.setCtime(TarUtils.getFileTime(v));
+                        it.remove();
                         break;
-                    case "gname":
-                        newEntry.setGname(value);
+                    case PAX_GID:
+                        entry.setGid(Integer.parseInt(v));
+                        it.remove();
                         break;
-                    case "linkpath":
-                        newEntry.setLinkname(value);
+                    case PAX_GNAME:
+                        entry.setGname(v);
+                        it.remove();
                         break;
-                    case "mtime":
-                        newEntry.setMtime(value);
+                    case PAX_LINKPATH:
+                        entry.setLinkname(v);
+                        it.remove();
                         break;
-                    case "path":
-                        newEntry.setName(value);
+                    case PAX_MTIME:
+                        entry.setMtime(TarUtils.getFileTime(v));
+                        it.remove();
                         break;
-                    case "size":
-                        newEntry.setSize(Long.parseLong(value));
+                    case PAX_PATH:
+                        entry.setName(v);
+                        it.remove();
                         break;
-                    case "uid":
-                        newEntry.setUid(Integer.parseInt(value));
+                    case PAX_SIZE:
+                        entry.setSize(Long.parseLong(v));
+                        it.remove();
                         break;
-                    case "uname":
-                        newEntry.setUname(value);
+                    case PAX_UID:
+                        entry.setUid(Integer.parseInt(v));
+                        it.remove();
+                        break;
+                    case PAX_UNAME:
+                        entry.setUname(v);
+                        it.remove();
                         break;
                     default:
-                        Map<String, String> extra = newEntry.getExtraHeaders();
-                        if (extra == null) {
-                            extra = new HashMap<>();
-                        }
-                        if (value == null) {
-                            extra.remove(key);
-                        } else {
-                            extra.put(key, value);
-                        }
-                        if (extra.isEmpty()) {
-                            extra = null;
-                        }
-                        newEntry.setExtraHeaders(extra);
+                        // keep the item in the hash table;
                         break;
                 }
             }
-        }
-        return newEntry;
-    }
-
-    /**
-     * Processes the current block as a USTAR heading. This is also used by
-     * {@link #processPosix()} to read the base header block.
-     * 
-     * @throws TarException if a numeric field is not convertible to a number.
-     */
-    private void processUstar() throws TarException {
-        processV7();
-        entry.setMagic(getStringValue(blockarray, MAGIC_OFFSET, MAGIC_LENGTH));
-        entry.setVersion(getStringValue(blockarray, VERSION_OFFSET, VERSION_LENGTH));
-        entry.setUname(getStringValue(blockarray, UNAME_OFFSET, UNAME_LENGTH));
-        entry.setGname(getStringValue(blockarray, GNAME_OFFSET, GNAME_LENGTH));
-        entry.setDevmajor(getNumericValue(blockarray, DEVMAJOR_OFFSET, DEVMAJOR_LENGTH));
-        entry.setDevminor(getNumericValue(blockarray, DEVMINOR_OFFSET, DEVMINOR_LENGTH));
-        String prefix = getStringValue(blockarray, PREFIX_OFFSET, PREFIX_LENGTH);
-        if (prefix != null && !prefix.isEmpty()) {
-            entry.setName(prefix + "/" + entry.getName());
-        }
-    }
-
-    private void processV7() throws TarException {
-        entry = new TarEntry(getStringValue(blockarray, NAME_OFFSET, NAME_LENGTH));
-        entry.setMode(getNumericValue(blockarray, MODE_OFFSET, MODE_LENGTH));
-        entry.setUid(getNumericValue(blockarray, UID_OFFSET, UID_LENGTH));
-        entry.setGid(getNumericValue(blockarray, GID_OFFSET, GID_LENGTH));
-        entry.setSize(getLongNumericValue(blockarray, SIZE_OFFSET, SIZE_LENGTH));
-        entry.setMtime(FileTime.from(getLongNumericValue(blockarray, MTIME_OFFSET, MTIME_LENGTH), TimeUnit.SECONDS));
-        entry.setChksum(getNumericValue(blockarray, CHKSUM_OFFSET, CHKSUM_LENGTH));
-        entry.setTypeflag((char) (0x00ff & blockarray[TYPEFLAG_OFFSET]));
-        entry.setLinkname(getStringValue(blockarray, LINKNAME_OFFSET, LINKNAME_LENGTH));
-    }
-
-    private String readGnuString() throws TarException, IOException {
-        int size = entry.getSize().intValue(); // the long name or link name has no business being bigger than 2GB, so this is safe.
-        int blocksToRead = (size + 511) / 512;
-        int bytesToRead = blocksToRead * 512;
-        int offset = 0;
-        byte[] bytes = new byte[bytesToRead];
-        
-        while (bytesToRead > 0) {
-            int ct = super.read(bytes, offset, bytesToRead);
-            if (ct == -1) {
-                throw new TarException("EOF before finished reading header");
+            entry.getExtraHeaders().putAll(extended);
+            return entry;
+        } else {
+            TarEntry entry = readV7Entry();
+            entry.setMagic(TarUtils.getStringValue(tmpbuf, MAGIC_OFFSET, MAGIC_LENGTH));
+            entry.setVersion(TarUtils.getStringValue(tmpbuf, VERSION_OFFSET, VERSION_LENGTH));
+            entry.setUname(TarUtils.getStringValue(tmpbuf, UNAME_OFFSET, UNAME_LENGTH));
+            entry.setGname(TarUtils.getStringValue(tmpbuf, GNAME_OFFSET, GNAME_LENGTH));
+            entry.setDevmajor(TarUtils.getNumericValue(tmpbuf, DEVMAJOR_OFFSET, DEVMAJOR_LENGTH));
+            entry.setDevminor(TarUtils.getNumericValue(tmpbuf, DEVMINOR_OFFSET, DEVMINOR_LENGTH));
+            String prefix = TarUtils.getStringValue(tmpbuf, PREFIX_OFFSET, PREFIX_LENGTH);
+            if (!prefix.isEmpty()) {
+                entry.setName(prefix + "/" + entry.getName());
             }
-            offset += ct;
-            bytesToRead -= ct;
+            entry.setFormat(TarFormat.PAX);
+            return entry;
         }
-        return new String(bytes);
     }
 
-    private void processGnu() throws TarException, IOException {
-        char typeflag = (char) (0x00ff & blockarray[TYPEFLAG_OFFSET]);
-        boolean atFile;
-        String longname = null;
-        String longlink = null;
-        do {
-            atFile = true;
-            switch (typeflag) {
-                case GNUTYPE_LONGLINK:
-                    longlink = readGnuString();
-                    readblock();
-                    atFile = false;
+    private TarEntry readGnuEntry() throws TarException {
+        entry.setMagic(TarUtils.getStringValue(tmpbuf, MAGIC_OFFSET, GNU_MAGIC_LENGTH));
+        entry.setUname(TarUtils.getStringValue(tmpbuf, UNAME_OFFSET, UNAME_LENGTH));
+        entry.setGname(TarUtils.getStringValue(tmpbuf, GNAME_OFFSET, GNAME_LENGTH));
+        entry.setDevmajor(TarUtils.getNumericValue(tmpbuf, DEVMAJOR_OFFSET, DEVMAJOR_LENGTH));
+        entry.setDevminor(TarUtils.getNumericValue(tmpbuf, DEVMINOR_OFFSET, DEVMINOR_LENGTH));
+        entry.setAtime(TarUtils.getFileTime(tmpbuf, GNU_ATIME_OFFSET, GNU_ATIME_LENGTH));
+        entry.setCtime(TarUtils.getFileTime(tmpbuf, GNU_CTIME_OFFSET, GNU_CTIME_LENGTH));
+        return entry;
+    }
+
+    private Map<String, String> readPaxData() throws IOException {
+        Map<String, String> retval = new HashMap<>();
+        Integer size = TarUtils.getNumericValue(tmpbuf, SIZE_OFFSET, SIZE_LENGTH);
+        if (size == null) {
+            throw new TarException("Unknown size on pax extended header");
+        }
+        int records = (size + 511) / 512;
+        int len = records * 512;
+        byte[] data = new byte[len];
+        fill(data, 0, len);
+        int i = 0;
+        while (i < len) {
+            int reclen = 0;
+            for (int j = i; j < len; j++) {
+                if (data[j] == ' ' || data[j] == 0) {
                     break;
-                case GNUTYPE_LONGNAME:
-                    longname = readGnuString();
-                    readblock();
-                    atFile = false;
-                    break;
+                }
+                int digit = data[j] - '0';
+                reclen = (reclen * 10) + digit;
             }
-        } while (!atFile);
-        processV7();
-        if (longname != null) {
-            entry.setName(longname);
+            if (reclen == 0) {
+                break;
+            }
+            String record = new String(data, i, reclen, StandardCharsets.UTF_8);
+            i += reclen;
+            Matcher matcher = PARAM_PATTERN.matcher(record);
+            if (!matcher.matches()) {
+                throw new TarException("Unknown header format");
+            }
+            String key = matcher.group(2);
+            String value = matcher.group(3);
+            retval.put(key, value);
         }
-        if (longlink != null) {
-            entry.setLinkname(longlink);
-        }
-        entry.setMagic(getStringValue(blockarray, MAGIC_OFFSET, GNU_MAGIC_LENGTH));
-        entry.setUname(getStringValue(blockarray, UNAME_OFFSET, UNAME_LENGTH));
-        entry.setGname(getStringValue(blockarray, GNAME_OFFSET, GNAME_LENGTH));
-        entry.setDevmajor(getNumericValue(blockarray, DEVMAJOR_OFFSET, DEVMAJOR_LENGTH));
-        entry.setDevminor(getNumericValue(blockarray, DEVMINOR_OFFSET, DEVMINOR_LENGTH));
-        entry.setAtime(FileTime.from(getLongNumericValue(blockarray, GNU_ATIME_OFFSET, GNU_ATIME_LENGTH), TimeUnit.SECONDS));
-        entry.setCtime(FileTime.from(getLongNumericValue(blockarray, GNU_CTIME_OFFSET, GNU_CTIME_LENGTH), TimeUnit.SECONDS));
+        return Collections.unmodifiableMap(retval);
     }
 
-    private boolean readblock() throws IOException {
+    private void readPax10SparseHoles() throws IOException {
+        boolean finished = false;
+        StringBuilder holeRecords = new StringBuilder();
+        while (!finished) {
+            int len = BLOCKSIZE;
+            int off = 0;
+            while (len > 0) {
+                int ct = this.read(tmpbuf, off, len);
+                len -= ct;
+                off += ct;
+            }
+            off = 0;
+            len = BLOCKSIZE;
+            for (int i = 0; i < len; ++i) {
+                if (tmpbuf[i] == 0) {
+                    len = i;
+                    break;
+                }
+            }
+            String part = new String(tmpbuf, off, len, StandardCharsets.US_ASCII);
+            holeRecords.append(part);
+            if (len < BLOCKSIZE || getSparseHoles(holeRecords)) {
+                finished = true;
+            }
+        }
+    }
+
+    private boolean getSparseHoles(CharSequence holeRecords) {
+        long[] retval = null;
+        String[] records = holeRecords.toString().split("\\n");
+        int recCt = Integer.parseInt(records[0]);
+        if (records.length == recCt + 1) {
+            int i = 1;
+            while (i < records.length) {
+                String offset = records[i++];
+                String length = records[i++];
+                sparseHoles.add(new SparseHole(offset, length));
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private synchronized void fill(byte[] block, int off, int len) throws IOException {
         ensureOpen();
-        if (eof || (entry != null && entryeof)) {
-            return false;
-        }
-        block.clear();
-        int readct = 0;
-        do {
-            int ct = super.read(blockarray, readct, blockarray.length - readct);
-            if (ct == -1) {
-                entryeof = true;
-                block.limit(0);
-                return false;
+        while (len > 0) {
+            int r = super.read(block, off, len);
+            if (r == -1) {
+                throw new EOFException();
             }
-            readct += ct;
-        } while (readct < 512);
-        if (entry != null) {
-            entrypos += 512;
-            if (entrypos >= entrylen) {
-                entryeof = true;
-                block.limit(block.capacity() - (int) (entrypos - entrylen));
+            off += r;
+            len -= r;
+        }
+    }
+
+    private boolean isBlockZeroFilled(byte[] block, int off, int len) {
+        for (int i = off; i < len; ++i) {
+            if (block[i] != 0) {
+                return false;
             }
         }
         return true;
+    }
+
+    private static final class SparseHole {
+        long offset;
+        long size;
+        public SparseHole(String offset, String size) {
+            this.offset = Long.parseLong(offset);
+            this.size = Long.parseLong(size);
+        }
     }
 }

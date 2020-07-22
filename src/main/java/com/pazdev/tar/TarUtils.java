@@ -16,6 +16,7 @@
 package com.pazdev.tar;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
@@ -31,6 +32,10 @@ import java.nio.charset.UnmappableCharacterException;
 import java.nio.charset.UnsupportedCharsetException;
 import java.nio.file.attribute.FileTime;
 import java.time.Instant;
+import java.util.concurrent.TimeUnit;
+
+import static com.pazdev.tar.TarConstants.MTIME_LENGTH;
+import static com.pazdev.tar.TarConstants.MTIME_OFFSET;
 
 /**
  *
@@ -94,38 +99,61 @@ class TarUtils {
         return new BigInteger(buf);
     }
 	
-	public static int getNumericValue(byte[] block, int offset, int length) throws TarException {
-        int retval = 0;
+	public static Integer getNumericValue(byte[] block, int offset, int length) throws TarException {
         byte firstByte = block[offset];
         if ((firstByte & 0b1000_0000) != 0) {
             BigInteger val = getBase256Number(block, offset, length);
             try {
-                retval = val.intValueExact();
+                return val.intValueExact();
             } catch (ArithmeticException e) {
                 throw new TarException("Cannot fit value into integer");
             }
         } else {
             String strval = getNumberString(block, offset, length);
-            retval = Integer.parseUnsignedInt(strval, 8);
+            if (strval.isEmpty()) {
+                return null;
+            }
+            return Integer.parseUnsignedInt(strval, 8);
         }
-        return retval;
 	}
-	
-	public static long getLongNumericValue(byte[] block, int offset, int length) throws TarException {
-        long retval = 0;
+
+    public static Long getLongNumericValue(byte[] block, int offset, int length) throws TarException {
         byte firstByte = block[offset];
         if ((firstByte & 0b1000_0000) != 0) {
             BigInteger val = getBase256Number(block, offset, length);
             try {
-                retval = val.longValueExact();
+                return val.longValueExact();
             } catch (ArithmeticException e) {
                 throw new TarException("Cannot fit value into integer");
             }
         } else {
             String strval = getNumberString(block, offset, length);
-            retval = Long.parseUnsignedLong(strval, 8);
+            if (strval.isEmpty()) {
+                return null;
+            }
+            return Long.parseUnsignedLong(strval, 8);
         }
-        return retval;
+    }
+
+    public static FileTime getFileTime(byte[] block, int offset, int length) throws TarException {
+        Long time = TarUtils.getLongNumericValue(block, offset, length);
+        if (time == null) {
+            return null;
+        }
+        return FileTime.from(time, TimeUnit.SECONDS);
+    }
+
+	public static BigInteger getBigNumericValue(byte[] block, int offset, int length) throws TarException {
+        byte firstByte = block[offset];
+        if ((firstByte & 0b1000_0000) != 0) {
+            return getBase256Number(block, offset, length);
+        } else {
+            String strval = getNumberString(block, offset, length);
+            if (strval.isEmpty()) {
+                return null;
+            }
+            return new BigInteger(strval, 8);
+        }
 	}
 	
     public static void setGnuNumericValue(long value, byte[] block, int offset, int length) {
@@ -153,7 +181,20 @@ class TarUtils {
             }
         }
     }
-	public static void setNumericValue(long value, byte[] block, int offset, int length) {
+
+    public static FileTime getFileTime(String value) throws TarException {
+ 	    try {
+            BigDecimal decimalSeconds = new BigDecimal(value);
+            long seconds = decimalSeconds.toBigInteger().longValueExact();
+            BigDecimal fraction = decimalSeconds.subtract(BigDecimal.valueOf(seconds));
+            long nanos = fraction.setScale(9).toBigInteger().longValue();
+            return FileTime.from(Instant.ofEpochSecond(seconds, nanos));
+        } catch (ArithmeticException e) {
+ 	        throw new TarException("Cannot parse file time");
+        }
+    }
+
+    public static void setNumericValue(long value, byte[] block, int offset, int length) {
 		if (value < 0) {
 			throw new IllegalArgumentException("Negative values are not allowed in TAR headers");
 		}

@@ -46,6 +46,8 @@ public final class TarConstants {
     public static final char XHDTYPE = 'x';
     public static final char XGLTYPE = 'g';
 
+    public static final int BLOCKSIZE = 512;
+
     public static final int NAME_OFFSET = 0;
     public static final int NAME_LENGTH = 100;
     public static final int MODE_OFFSET = 100;
@@ -91,6 +93,15 @@ public final class TarConstants {
     public static final int GNU_SPARSE_EXTENDED_LENGTH = 1;
     public static final int GNU_SPARSE_REALSIZE_OFFSET = 483;
     public static final int GNU_SPARSE_REALSIZE_LENGTH = 12;
+    public static final int SCHILY_PREFIX_LENGTH = 131;
+    public static final int SCHILY_ATIME_OFFSET = 476;
+    public static final int SCHILY_ATIME_LENGTH = 12;
+    public static final int SCHILY_CTIME_OFFSET = 488;
+    public static final int SCHILY_CTIME_LENGTH = 12;
+    public static final int SCHILY_MFILL_OFFSET = 500;
+    public static final int SCHILY_MFILL_LENGTH = 8;
+    public static final int SCHILY_XMAGIC_OFFSET = 508;
+    public static final int SCHILY_XMAGIC_LENGTH = 4;
 
     public static final char GNUTYPE_DUMPDIR = 'D';
     public static final char GNUTYPE_LONGLINK = 'K';
@@ -99,10 +110,25 @@ public final class TarConstants {
     public static final char GNUTYPE_SPARSE = 'S';
     public static final char GNUTYPE_VOLHDR = 'V';
     public static final char SOLARIS_XHDTYPE = 'X';
+    public static final char SCHILY_INODE = 'I';
 
     public static final String USTAR_MAGIC = "ustar";
     public static final String USTAR_VERSION = "00";
     public static final String GNU_MAGIC = "ustar  ";
+    public static final String SCHILY_XMAGIC = "tar";
+
+    public static final String PAX_ATIME = "atime";
+    public static final String PAX_CHARSET = "charset";
+    public static final String PAX_COMMENT = "comment";
+    public static final String PAX_CTIME = "ctime";
+    public static final String PAX_GID = "gid";
+    public static final String PAX_GNAME = "gname";
+    public static final String PAX_LINKPATH = "linkpath";
+    public static final String PAX_MTIME = "mtime";
+    public static final String PAX_PATH = "path";
+    public static final String PAX_SIZE = "size";
+    public static final String PAX_UID = "uid";
+    public static final String PAX_UNAME = "uname";
 
     private TarConstants() {
         throw new UnsupportedOperationException("Cannot instantiate this class");

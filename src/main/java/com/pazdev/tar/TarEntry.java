@@ -15,20 +15,16 @@
  */
 package com.pazdev.tar;
 
-import static com.pazdev.tar.TarConstants.*;
-
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.Charset;
 import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermission;
 import java.time.Instant;
-import java.util.Collections;
-import java.util.EnumSet;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+import static com.pazdev.tar.TarConstants.*;
 
 /**
  * This class represents a TAR file entry. It supports POSIX, USTAR, GNU, and
@@ -49,16 +45,16 @@ public class TarEntry {
     private Integer chksum;
     private Character typeflag;
     private String linkname;
-    private String magic = "ustar";
-    private String version = "00";
+    private String magic;
+    private String version;
     private String uname;
     private String gname;
     private Integer devmajor;
     private Integer devminor;
     private Charset charset;
     private String comment;
-    private Map<String, String> extraHeaders;
-    private TarFormat format = TarFormat.PAX;
+    private final Map<String, String> extraHeaders = new ConcurrentHashMap<>();
+    private TarFormat format;
 
     /**
      * Creates a new TarEntry with the given name. All path names must use the "/"
@@ -69,7 +65,7 @@ public class TarEntry {
      * @throws NullPointerException if name is null
      */
     public TarEntry(String name) {
-        super();
+        this();
         Objects.requireNonNull(name);
         this.name = name;
     }
@@ -80,7 +76,7 @@ public class TarEntry {
      * @throws NullPointerException if entry is null
      */
     public TarEntry(TarEntry entry) {
-        super();
+        this();
         Objects.requireNonNull(entry);
         this.name = entry.name;
         this.mode = entry.mode;
@@ -103,7 +99,7 @@ public class TarEntry {
         this.comment = entry.comment;
         this.format = entry.format;
         if (entry.extraHeaders != null && !entry.extraHeaders.isEmpty()) {
-            this.extraHeaders = new HashMap<>(entry.extraHeaders);
+            this.extraHeaders.putAll(entry.extraHeaders);
         }
     }
 
@@ -114,122 +110,6 @@ public class TarEntry {
         super();
     }
 
-    /**
-     * Apply the properties of the given TarEntry object onto the blank properties
-     * of this object. The attributes of the given entry will not override the
-     * attribute for this object, as opposed to the {@code mergeEntry} method.
-     * 
-     * @param e the entry
-     * @return the merged TAR entry
-     */
-    TarEntry applyEntry(TarEntry e) {
-        if (e == null) {
-            return this;
-        }
-        if (e.name != null && this.name == null) {
-            this.name = e.name;
-        }
-        if (e.mode != null && this.mode == null) {
-            this.mode = e.mode;
-        }
-        if (e.uid != null && this.uid == null) {
-            this.uid = e.uid;
-        }
-        if (e.gid != null && this.gid == null) {
-            this.gid = e.gid;
-        }
-        if (e.size != null && this.size == null) {
-            this.size = e.size;
-        }
-        if (e.mtime != null && this.mtime == null) {
-            this.mtime = e.mtime;
-        }
-        if (e.atime != null && this.atime == null) {
-            this.atime = e.atime;
-        }
-        if (e.linkname != null && this.linkname == null) {
-            this.linkname = e.linkname;
-        }
-        if (e.uname != null && this.uname == null) {
-            this.uname = e.uname;
-        }
-        if (e.gname != null && this.gname == null) {
-            this.gname = e.gname;
-        }
-        if (e.devmajor != null && this.devmajor == null) {
-            this.devmajor = e.devmajor;
-        }
-        if (e.devminor != null && this.devminor == null) {
-            this.devminor = e.devminor;
-        }
-        if (e.charset != null && this.charset == null) {
-            this.charset = e.charset;
-        }
-        if (e.comment != null && this.comment == null) {
-            this.comment = e.comment;
-        }
-        if (e.extraHeaders != null) {
-            e.extraHeaders.forEach(this.extraHeaders::putIfAbsent);
-        }
-        return this;
-    }
-
-    /**
-     * Merge the given TarEntry object into this object. The attributes of the
-     * given entry will override the attribute for this object.
-     * @param e the entry
-     * @return the merged TAR entry
-     * @throws NullPointerException if e is null
-     */
-    TarEntry mergeEntry(TarEntry e) {
-        Objects.requireNonNull(e);
-        if (e.name != null) {
-            this.name = e.name;
-        }
-        if (e.mode != null) {
-            this.mode = e.mode;
-        }
-        if (e.uid != null) {
-            this.uid = e.uid;
-        }
-        if (e.gid != null) {
-            this.gid = e.gid;
-        }
-        if (e.size != null) {
-            this.size = e.size;
-        }
-        if (e.mtime != null) {
-            this.mtime = e.mtime;
-        }
-        if (e.atime != null) {
-            this.atime = e.atime;
-        }
-        if (e.linkname != null) {
-            this.linkname = e.linkname;
-        }
-        if (e.uname != null) {
-            this.uname = e.uname;
-        }
-        if (e.gname != null) {
-            this.gname = e.gname;
-        }
-        if (e.devmajor != null) {
-            this.devmajor = e.devmajor;
-        }
-        if (e.devminor != null) {
-            this.devminor = e.devminor;
-        }
-        if (e.charset != null) {
-            this.charset = e.charset;
-        }
-        if (e.comment != null) {
-            this.comment = e.comment;
-        }
-        if (e.extraHeaders != null) {
-            this.extraHeaders.putAll(e.extraHeaders);
-        }
-        return this;
-    }
 
     /**
      * The name of the entry.
@@ -663,17 +543,6 @@ public class TarEntry {
     }
 
     /**
-     * Sets the map describing any additional header values being set.
-     * This class makes no arrangements for the thread safety for this map.
-     * When this entry is being used to write to a TAR file, a copy of this map
-     * if present, is made and read from while processing.
-     * @param extraHeaders extra headers for this entry
-     */
-    public void setExtraHeaders(Map<String, String> extraHeaders) {
-        this.extraHeaders = extraHeaders;
-    }
-
-    /**
      * The format of this entry. By default, the format is {@code TarFormat.PAX}
      * @return this entry's format
      */
@@ -703,49 +572,6 @@ public class TarEntry {
                 setMagic(null);
                 setVersion(null);
                 break;
-        }
-    }
-
-    /**
-     * Creates an Instant based on the given string arbitrary-precision decimal
-     * representation.
-     * @param t the timestamp string
-     * @return an instant representing the timestamp
-     */
-    private static Instant stringToInstant(String t) {
-        BigDecimal time = new BigDecimal(t);
-        BigDecimal seconds = time.setScale(0, RoundingMode.FLOOR);
-        BigDecimal nanos = time.subtract(seconds).movePointRight(9).setScale(0, RoundingMode.FLOOR);
-        return Instant.ofEpochSecond(seconds.longValue(), nanos.longValue());
-    }
-
-    /**
-     * Sets the mtime based on a string value
-     * @param mtime 
-     */
-    void setMtime(String mtime) {
-        if (mtime != null) {
-            this.mtime = FileTime.from(stringToInstant(mtime));
-        }
-    }
-
-    /**
-     * Sets the atime based on a string value
-     * @param atime
-     */
-    void setAtime(String atime) {
-        if (atime != null) {
-            this.atime = FileTime.from(stringToInstant(atime));
-        }
-    }
-
-    /**
-     * Sets the ctime based on a string value
-     * @param ctime
-     */
-    void setCtime(String ctime) {
-        if (ctime != null) {
-            this.ctime = FileTime.from(stringToInstant(ctime));
         }
     }
 
